@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Survivor</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #2a3038; font-family: 'Segoe UI', 'Trebuchet MS', sans-serif; color: #eee; }
+    canvas { display: block; touch-action: none; image-rendering: pixelated; }
+    .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 16, 24, 0.65); }
+    .hidden { display: none; }
+    .panel { background: #1e2a38; border: 3px solid #4aa3df; border-radius: 10px; padding: 24px; max-width: 580px; width: calc(100% - 32px); max-height: calc(100% - 32px); overflow-y: auto; text-align: center; box-shadow: 0 0 40px #000; }
+    h1 { margin: 0 0 12px; color: #fff; text-shadow: 2px 2px 0 #0a1018; }
+    h1 small { display: block; font-size: 14px; color: #8fc4ea; font-weight: normal; margin-top: 4px; }
+    p { line-height: 1.5; }
+    button { font: inherit; cursor: pointer; }
+    .btn { background: #4aa3df; color: #0a1018; border: none; padding: 10px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; margin: 4px; }
+    .btn:hover { background: #8fc4ea; }
+    .btn.secondary { background: #3a4a5c; color: #eee; }
+    .btn.secondary:hover { background: #4a5c70; }
+    .help { font-size: 13px; color: #9ab; }
+
+    /* Sélection façon organigramme de la Delivery Team */
+    .team-title { display: inline-block; margin: 0; background: #0bc0e8; color: #fff; padding: 8px 48px; border-radius: 6px; box-shadow: 4px 4px 0 #0a1018; }
+    .subtitle { margin: 6px 0 0; color: #8fc4ea; }
+    #chars { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+    .team { display: flex; align-items: center; gap: 12px; }
+    .team-label { flex: 0 0 120px; background: #0bc0e8; color: #fff; border: 2px solid #2030d0; border-radius: 8px; padding: 8px 4px; font-size: 15px; font-weight: bold; }
+    .members { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; }
+    .char { width: 128px; display: flex; flex-direction: column; align-items: center; background: transparent; color: #eee; border: 2px solid transparent; border-radius: 8px; padding: 6px 4px 4px; }
+    .char.selected { border-color: #0bc0e8; background: rgba(11, 192, 232, 0.18); transform: translateY(-2px); }
+    .char .portrait { height: 54px; display: flex; align-items: flex-end; margin-bottom: 3px; }
+    .char img { image-rendering: pixelated; }
+    .char .name { width: 100%; background: #f5b800; color: #fff; font-size: 13px; font-weight: bold; padding: 2px 0; text-shadow: 1px 1px 0 #a07000; }
+    .char .role { width: 100%; min-height: 34px; display: flex; align-items: center; justify-content: center; background: #fff; color: #222; border: 2px solid #f5b800; border-top: none; font-size: 11px; line-height: 1.2; padding: 2px; }
+    #charInfo { overflow: hidden; background: #2a3a4c; border: 2px solid #3a5068; border-radius: 8px; padding: 10px 14px; text-align: left; font-size: 14px; }
+    #charInfo p { margin: 4px 0; font-size: 13px; color: #bcc; line-height: 1.35; }
+    #charInfo small { font-size: 13px; color: #ffd866; }
+    @media (max-width: 640px) {
+      .team { flex-direction: column; align-items: stretch; }
+      .team-label { flex: none; }
+      .members { justify-content: center; }
+    }
+    .card .key { position: absolute; top: 6px; left: 8px; color: #789; font-size: 12px; }
+
+    #choices { display: flex; flex-direction: column; gap: 10px; }
+    .card { position: relative; display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 8px; padding: 10px 14px 10px 22px; }
+    .card:hover { border-color: #8fc4ea; background: #34485e; }
+    .card .icon { font-size: 30px; width: 40px; text-align: center; }
+    .card em { color: #ffd866; font-style: normal; font-size: 13px; margin-left: 6px; }
+    .card p { margin: 4px 0 0; font-size: 13px; color: #bcc; }
+    /* Pas d'ascenseur : le panneau est réduit par fitCharSelect() pour tenir dans la fenêtre */
+    #start .panel { max-width: 760px; max-height: none; overflow: visible; padding: 16px 20px; border-color: #0bc0e8; flex-shrink: 0; }
+    #start .help { margin: 8px 0 0; }
+
+    /* Écran titre : logo bleu / vert */
+    #title { background: radial-gradient(circle at 50% 40%, rgba(20, 35, 220, 0.35), rgba(5, 8, 30, 0.9)); cursor: pointer; flex-direction: column; text-align: center; padding: 16px; }
+    .logo { display: inline-flex; align-items: center; gap: 18px; background: #fff; border-radius: 18px; padding: 20px 30px; box-shadow: 0 8px 0 #96cd32, 0 0 60px rgba(0, 0, 0, 0.6); max-width: 100%; }
+    .logo svg { width: 72px; height: 72px; flex-shrink: 0; }
+    .logo-text { text-align: left; }
+    .logo-top { font: 900 clamp(32px, 8vw, 58px)/1 'Arial Black', 'Segoe UI', sans-serif; color: #1423dc; letter-spacing: 2px; }
+    .logo-bottom { font: 900 clamp(24px, 6vw, 42px)/1.1 'Arial Black', 'Segoe UI', sans-serif; color: #96cd32; letter-spacing: 6px; }
+    .tagline { color: #cfe0ff; font-size: 18px; margin: 28px 0 8px; }
+    .press { color: #fff; font-weight: bold; animation: blink 1.2s infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+
+    #chest .panel { border-color: #f0c030; }
+    .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
+    .reward .icon { font-size: 40px; }
+    .reward em { color: #ffd866; font-style: normal; margin-left: 6px; }
+    .reward p { margin: 4px 0 0; font-size: 13px; color: #bcc; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="title" class="overlay">
+    <div class="logo">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="30" fill="#1423dc"/>
+        <polygon points="36,8 16,36 30,36 26,56 48,26 34,26" fill="#96cd32"/>
+      </svg>
+      <div class="logo-text">
+        <div class="logo-top">DELIVERY</div>
+        <div class="logo-bottom">SURVIVOR</div>
+      </div>
+    </div>
+    <p class="tagline">Survis à ta journée en open space, de 9h00 à 18h00</p>
+    <p class="press">Appuie sur Entrée ou clique pour commencer</p>
+  </div>
+
+  <div id="start" class="overlay hidden">
+    <div class="panel">
+      <h1 class="team-title">DELIVERY Team</h1>
+      <p class="subtitle">Qui va survivre à cette journée ?</p>
+      <div id="chars"></div>
+      <div id="charInfo"></div>
+      <p class="help">Choix : <b>flèches + Entrée</b> ou clic · Déplacement : <b>ZQSD / WASD / flèches</b> (ou glisser au doigt/à la souris)<br>
+        Les armes tirent toutes seules · Ramasse les gemmes pour monter de niveau · <b>Échap</b> : pause<br>
+        Tiens jusqu'à <b>18h00</b> (10 minutes) · Un <b>directeur</b> débarque toutes les 2 minutes</p>
+    </div>
+  </div>
+
+  <div id="levelup" class="overlay hidden">
+    <div class="panel">
+      <h1>Promotion !<small>Choisis ton avantage</small></h1>
+      <div id="choices"></div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="panel"><h1>Pause café</h1><p>Appuie sur Échap pour reprendre</p></div>
+  </div>
+
+  <div id="chest" class="overlay hidden">
+    <div class="panel">
+      <h1>Coffre du directeur !<small>Une de tes armes monte de niveau</small></h1>
+      <div id="chestContent"></div>
+      <button class="btn" id="chestBtn">Continuer</button>
+    </div>
+  </div>
+
+  <div id="gameover" class="overlay hidden">
+    <div class="panel">
+      <h1 id="endTitle">Burn-out !</h1>
+      <p id="stats"></p>
+      <button class="btn" id="restartBtn">Rejouer</button>
+      <button class="btn secondary" id="changeBtn">Changer de personnage</button>
+    </div>
+  </div>
+
+  <script src="js/textures.js"></script>
+  <script src="js/weapons.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
