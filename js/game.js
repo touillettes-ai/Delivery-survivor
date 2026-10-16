@@ -48,6 +48,7 @@ const FOLLOWER_DASH_EVERY = [8, 15]; // secondes entre deux attaques (min, max)
 const FOLLOWER_DASH_RANGE = 250;     // distance max de Sheryna à la cible
 const FOLLOWER_DASH_SPEED = 400;
 const FOLLOWER_KILL_LINES = ["Je t'ai géré ça !", 'Pas de quoi Sheryna !'];
+const FOLLOWER_MEETING = 30; // durée de sa réunion (double-clic dessus), en secondes
 
 // ---- Niveaux ----
 // props : [type de meuble, probabilité par zone]
@@ -135,13 +136,30 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 // Joystick tactile / souris : on glisse depuis le point de départ
 const touch = { active: false, sx: 0, sy: 0, x: 0, y: 0 };
+const lastTap = { t: 0, x: 0, y: 0 };
 canvas.addEventListener('pointerdown', e => {
+  // Double-clic / double tap sur le suiveur de Sheryna : il part en réunion
+  const now = performance.now();
+  if (now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+    lastTap.t = 0;
+    sendFollowerToMeeting(e.clientX, e.clientY);
+  } else Object.assign(lastTap, { t: now, x: e.clientX, y: e.clientY });
   touch.active = true;
   touch.sx = touch.x = e.clientX;
   touch.sy = touch.y = e.clientY;
 });
 addEventListener('pointermove', e => { if (touch.active) { touch.x = e.clientX; touch.y = e.clientY; } });
 addEventListener('pointerup', () => touch.active = false);
+
+function sendFollowerToMeeting(sx, sy) {
+  const f = game.follower, p = game.player;
+  if (!f || f.mode !== 'follow' || game.state !== 'play') return;
+  const img = Sprites.follower.right, wx = sx + p.x - W / 2, wy = sy + p.y - H / 2; // écran → monde
+  if (Math.abs(wx - f.x) > img.width * FOLLOWER_SIZE / 2 + 8 || Math.abs(wy - f.y) > img.height * FOLLOWER_SIZE / 2 + 8) return;
+  game.playerBubble = { text: "Je te laisse, j'ai une réunion", t: 2.5 };
+  const dx = f.x - p.x, dy = f.y - p.y, d = Math.hypot(dx, dy) || 1;
+  Object.assign(f, { mode: 'leaving', awayT: 2.5, target: null, leaveX: dx / d, leaveY: dy / d, bubble: 0 });
+}
 
 // e.code = position physique : KeyW/A/S/D correspond aussi à ZQSD sur AZERTY
 function inputDir() {
@@ -176,7 +194,7 @@ function newGame(charId, levelId = selectedLevel) {
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
   if (LEVELS[levelId].goal) createPiRoom();
   const ch = CHARACTERS[charId];
-  if (ch.follower) game.follower = { x: -30, y: 0, r: 10, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '', target: null, dashT: 0, dashTimer: 6 };
+  if (ch.follower) game.follower = { x: -30, y: 0, r: 10, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '', target: null, dashT: 0, dashTimer: 6, mode: 'follow', awayT: 0 };
   if (ch.apply) ch.apply(game.player);
   for (const [id, lvl] of Object.entries(ch.passives || {})) {
     game.passives[id] = lvl;
@@ -594,9 +612,34 @@ function update(dt) {
 
   // Le suiveur de Sheryna : la colle à distance, dit coucou de temps en temps,
   // et fonce parfois sur un ennemi proche pour l'éliminer d'un coup
+  // Double-clic dessus : il part en réunion (s'éloigne, disparaît FOLLOWER_MEETING s, puis revient)
   const f = game.follower;
-  if (f) {
-    if (!f.target && (f.dashTimer -= dt) <= 0) {
+  if (game.playerBubble && (game.playerBubble.t -= dt) <= 0) game.playerBubble = null;
+  if (f && f.mode === 'leaving') {
+    f.x += f.leaveX * 170 * dt;
+    f.y += f.leaveY * 170 * dt;
+    f.moving = true;
+    if (Math.abs(f.leaveX) > 0.1) f.dirX = Math.sign(f.leaveX);
+    pushOutOfProps(f);
+    f.bubble -= dt;
+    if ((f.awayT -= dt) <= 0) { f.mode = 'away'; f.awayT = FOLLOWER_MEETING; }
+  } else if (f && f.mode === 'away') {
+    if ((f.awayT -= dt) <= 0) {
+      const a = Math.random() * Math.PI * 2;
+      f.x = p.x + Math.cos(a) * 220;
+      f.y = p.y + Math.sin(a) * 220;
+      f.mode = 'returning';
+      f.target = null;
+      f.text = 'Je suis de retour !';
+      f.bubble = 2.5;
+      f.bubbleTimer = Math.max(f.bubbleTimer, 6);
+    }
+  } else if (f) {
+    if (f.mode === 'returning' && Math.hypot(p.x - f.x, p.y - f.y) < 70) {
+      f.mode = 'follow';
+      game.playerBubble = { text: 'Supeer !', t: 2.5 };
+    }
+    if (f.mode === 'follow' && !f.target && (f.dashTimer -= dt) <= 0) {
       f.dashTimer = FOLLOWER_DASH_EVERY[0] + Math.random() * (FOLLOWER_DASH_EVERY[1] - FOLLOWER_DASH_EVERY[0]);
       let best = null, bd = FOLLOWER_DASH_RANGE ** 2;
       for (const e of game.enemies) {
@@ -1032,7 +1075,7 @@ function draw() {
   const list = [];
   for (const e of game.enemies) if (inView(e.x, e.y, 80)) list.push({ key: e.prop ? e.prop.y + e.prop.h / 2 : e.y + e.r, e });
   list.push({ key: p.y + p.r, e: p });
-  if (game.follower) list.push({ key: game.follower.y + game.follower.r, e: game.follower });
+  if (game.follower && game.follower.mode !== 'away') list.push({ key: game.follower.y + game.follower.r, e: game.follower });
   const cx0 = Math.floor((camX - 100) / CHUNK), cx1 = Math.floor((camX + W + 100) / CHUNK);
   const cy0 = Math.floor((camY - 100) / CHUNK), cy1 = Math.floor((camY + H + 100) / CHUNK);
   for (let cx = cx0; cx <= cx1; cx++)
@@ -1185,7 +1228,9 @@ function draw() {
 
   // Bulle du suiveur, au-dessus de tout le reste
   const f = game.follower;
-  if (f && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * FOLLOWER_SIZE / 2 - 4);
+  if (f && f.mode !== 'away' && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * FOLLOWER_SIZE / 2 - 4);
+  // Bulle de Sheryna
+  if (game.playerBubble) drawBubble(game.playerBubble.text, p.x, p.y - Sprites[p.charId].right.height / 2 - 4);
   // Bulle de l'orateur qui parle sur la scène de la PI
   if (g && g.talkT > 0.5) {
     const sx = g.doorX + (g.talker ? 50 : -50), sy = g.y + 104;
@@ -1325,7 +1370,9 @@ function drawFollower(f) {
   ctx.beginPath();
   ctx.ellipse(f.x, f.y + h / 2 - 2, 10, 3.5, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.globalAlpha = f.mode === 'leaving' ? Math.max(0, Math.min(1, f.awayT / 1.5)) : 1; // s'efface en partant
   ctx.drawImage(img, Math.round(f.x - w / 2), Math.round(f.y - h / 2 + bob), w, h);
+  ctx.globalAlpha = 1;
 }
 
 // Bulle de BD dont la pointe est en (x, y)
