@@ -1,7 +1,7 @@
 // ==== Boucle principale du jeu ====
 const MAX_ENEMIES = 500;
 const MAX_WEAPONS = 4, MAX_PASSIVES = 4;
-const TEST_START_LEGENDARY = false; // TEST TEMPORAIRE (à supprimer) : arme de départ légendaire
+const DEMO_MODE = false; // Mode démo : chaque personnage démarre avec son arme en version légendaire
 const XP_FACTOR = 0.95; // XP nécessaire pour monter de niveau (0.95 = -5%)
 
 // Les collègues qui veulent "juste 5 minutes" de ton temps (flying : ignore le mobilier)
@@ -216,8 +216,8 @@ function newGame(charId, levelId = selectedLevel) {
     for (let i = 0; i < lvl; i++) PASSIVES[id].apply(game.player);
   }
   addWeapon(ch.weapon);
-  // TEST TEMPORAIRE (à supprimer) : on démarre avec l'arme de départ en version légendaire
-  if (TEST_START_LEGENDARY) Object.assign(game.weapons[0], { level: WEAPONS[ch.weapon].maxLevel, legendary: true });
+  // Mode démo : l'arme de départ est directement légendaire
+  if (DEMO_MODE) Object.assign(game.weapons[0], { level: WEAPONS[ch.weapon].maxLevel, legendary: true });
 }
 
 function startGame(charId, levelId = selectedLevel) {
