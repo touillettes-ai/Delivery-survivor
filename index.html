@@ -44,7 +44,9 @@
     }
     .card .key { position: absolute; top: 6px; left: 8px; color: #789; font-size: 12px; }
 
-    #choices { display: flex; flex-direction: column; gap: 10px; }
+    #choices, #levelList { display: flex; flex-direction: column; gap: 10px; }
+    #levelList .card { width: 100%; }
+    #levelList .card.selected { border-color: #96cd32; background: #34485e; }
     .card { position: relative; display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 8px; padding: 10px 14px 10px 22px; }
     .card:hover { border-color: #8fc4ea; background: #34485e; }
     .card .icon { font-size: 30px; width: 40px; text-align: center; }
@@ -98,7 +100,15 @@
       <div id="charInfo"></div>
       <p class="help">Choix : <b>flèches + Entrée</b> ou clic · Déplacement : <b>ZQSD / WASD / flèches</b> (ou glisser au doigt/à la souris)<br>
         Les armes tirent toutes seules · Ramasse les gemmes pour monter de niveau · <b>Échap</b> : pause<br>
-        Tiens jusqu'à <b>18h00</b> (10 minutes) · Un <b>directeur</b> débarque toutes les 2 minutes</p>
+        Tu choisiras ensuite ton niveau</p>
+    </div>
+  </div>
+
+  <div id="levels" class="overlay hidden">
+    <div class="panel">
+      <h1>Choisis ton niveau<small id="levelChar"></small></h1>
+      <div id="levelList"></div>
+      <p class="help">Choix : <b>flèches + Entrée</b>, <b>1</b> / <b>2</b> ou clic · <b>Échap</b> : changer de personnage</p>
     </div>
   </div>
 

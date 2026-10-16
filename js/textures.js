@@ -92,6 +92,36 @@ function makeFloor() {
   });
 }
 
+// Parquet à lames décalées (niveau 2), se répète sans couture
+function makeParquet() {
+  const N = 128, S = 2, PH = 8, PL = 32; // lames de 8 "pixels" de large, 32 de long
+  const rnd = mulberry32(4242);
+  return makeCanvas(N * S, N * S, g => {
+    const px = (x, y, c) => {
+      g.fillStyle = c;
+      g.fillRect(((x % N + N) % N) * S, ((y % N + N) % N) * S, S, S);
+    };
+    const bases = ['#b07a46', '#a8703e', '#ba844e', '#a2683a'];
+    for (let row = 0; row < N / PH; row++) {
+      const offset = (row * 13) % PL;
+      for (let p = -1; p < N / PL; p++) {
+        const base = bases[rnd() * bases.length | 0], x0 = p * PL + offset;
+        for (let y = 0; y < PH; y++) {
+          for (let x = 0; x < PL; x++) {
+            let c = base;
+            if ((x * 3 + y * 7 + row) % 11 === 0) c = '#9a6236'; // veinage
+            if (y === 0) c = '#7a4a26';
+            else if (x === 0) c = '#84522c';
+            else if (y === 1) c = '#c8925a';
+            px(x0 + x, row * PH + y, c);
+          }
+        }
+      }
+    }
+    for (let i = 0; i < 600; i++) px(rnd() * N | 0, rnd() * N | 0, rnd() < 0.5 ? '#9c6438' : '#c08a52');
+  });
+}
+
 // ---- Personnages jouables : skins d'après le trombinoscope de la Delivery Team ----
 // [grille, palette] par personnage. Lettres communes : s peau, e yeux, m bouche, p pantalon, k chaussures
 const CHAR_SKINS = {
@@ -367,11 +397,11 @@ const CHAR_SKINS = {
   ], { h: '#c8642a', B: '#b85a24', s: '#f0c8a0', e: '#2a6a9a', m: '#6a2a10', j: '#3a5aa0', p: '#3a4a6a', k: '#2a1a10' }],
 };
 
-// Le collègue qui suit Sheryna partout : chemise grise, lunettes, ne sert à rien
+// Le collègue qui suit Sheryna partout : chauve, chemise grise, lunettes, ne sert à rien
 const FOLLOWER_SKIN = [[
-  '...hhhhhh...',
-  '..hhhhhhhh..',
-  '..hssssssh..',
+  '...ssssss...',
+  '..sslsssss..',
+  '..ssssssss..',
   '..gggssggg..',
   '..sesssess..',
   '...ssmmss...',
@@ -382,7 +412,26 @@ const FOLLOWER_SKIN = [[
   '..pp....pp..',
   '..pp....pp..',
   '.kkk....kkk.',
-], { h: '#6a5a4a', s: '#f0c8a0', g: '#222', e: '#2a2a2a', m: '#a05050', c: '#9aa0a8', p: '#3a3a4a', k: '#1a1a1a' }];
+], { l: '#fff0dc', s: '#f0c8a0', g: '#222', e: '#2a2a2a', m: '#a05050', c: '#9aa0a8', p: '#3a3a4a', k: '#1a1a1a' }];
+
+// Les deux orateurs sur la scène de la salle PI (micro-casque : M)
+const SPEAKER_ROWS = [
+  '...hhhhhh...',
+  '..hhhhhhhh..',
+  '..hssssssh..',
+  '..sesssesM..',
+  '..ssssssMs..',
+  '...ssmmss...',
+  '..cccccccc..',
+  '.sccccccccs.',
+  '..cccccccc..',
+  '..pppppppp..',
+  '..pp....pp..',
+  '..pp....pp..',
+  '.kkk....kkk.',
+];
+const SPEAKER_A = { h: '#2a1a10', s: '#e8b890', e: '#2a2a2a', m: '#a05050', M: '#333', c: '#1d4f91', p: '#2a2a3a', k: '#1a1a1a' };
+const SPEAKER_B = { h: '#d8a040', s: '#f4d0b0', e: '#2a2a2a', m: '#b04060', M: '#333', c: '#c03a5a', p: '#2a2a3a', k: '#1a1a1a' };
 
 // ---- Ennemis : les collègues (sourcils froncés = pas contents) ----
 const INTERN_ROWS = [
@@ -635,6 +684,8 @@ const Sprites = {
   coworker: enemySet([pixelSprite(COWORKER_ROWS, COWORKER_PAL)]),
   manager: enemySet([pixelSprite(MANAGER_ROWS, MANAGER_PAL)]),
   follower: charSet(...FOLLOWER_SKIN),
+  speakerA: charSet(SPEAKER_ROWS, SPEAKER_A),
+  speakerB: charSet(SPEAKER_ROWS, SPEAKER_B),
 };
 
 // ---- Mobilier (vue 3/4) ----
@@ -687,6 +738,34 @@ const PROP_IMAGES = {
       [7, 26, 3, 3, '#3060c0'], [14, 26, 3, 3, '#d03030'], [5, 44, 14, 4, '#8a8e96'],
     ]);
   }),
+  // Patio vitré avec un arbre (niveau 2) : un bout d'extérieur au milieu des bureaux
+  patio: makeCanvas(112, 136, g => {
+    drawRects(g, [[2, 56, 108, 78, '#9ac8e0'], [6, 62, 100, 66, '#4a9a3a']]);
+    const rnd = mulberry32(77);
+    for (let i = 0; i < 60; i++) drawRects(g, [[6 + rnd() * 98 | 0, 62 + rnd() * 64 | 0, 2, 2, rnd() < 0.5 ? '#3a8a2e' : '#5aae48']]);
+    for (const [x, y, c] of [[20, 112, '#f05080'], [88, 76, '#ffd040'], [26, 74, '#ffffff'], [84, 116, '#f05080']])
+      drawRects(g, [[x - 2, y, 2, 2, c], [x + 2, y, 2, 2, c], [x, y - 2, 2, 2, c], [x, y + 2, 2, 2, c], [x, y, 2, 2, '#ffe080']]);
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.beginPath(); g.ellipse(56, 104, 26, 8, 0, 0, Math.PI * 2); g.fill();
+    drawRects(g, [[51, 64, 10, 42, '#6a4020'], [51, 64, 3, 42, '#8a5a30']]);
+    const leaf = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+    leaf(56, 40, 30, '#2a6a30'); leaf(34, 56, 20, '#2a6a30'); leaf(78, 56, 20, '#2a6a30');
+    leaf(48, 30, 16, '#3a8a3e'); leaf(70, 42, 12, '#3a8a3e'); leaf(36, 52, 10, '#3a8a3e');
+    leaf(44, 24, 6, '#5aae4a'); leaf(66, 34, 5, '#5aae4a');
+    // Vitres : cadre + reflets
+    drawRects(g, [[2, 56, 108, 4, '#cfe8f4'], [2, 56, 3, 78, '#cfe8f4'], [107, 56, 3, 78, '#cfe8f4'], [2, 128, 108, 6, '#7aaac4'], [2, 127, 108, 2, '#e8f6ff']]);
+    g.fillStyle = 'rgba(255,255,255,0.25)';
+    for (const x of [16, 70]) { g.beginPath(); g.moveTo(x, 126); g.lineTo(x + 10, 126); g.lineTo(x + 24, 64); g.lineTo(x + 14, 64); g.fill(); }
+  }),
+  sofa: makeCanvas(72, 40, g => {
+    drawRects(g, [
+      [4, 2, 64, 18, '#2e5a88'], [4, 2, 64, 3, '#4a7ab0'],
+      [0, 16, 72, 16, '#3a6a9a'], [0, 16, 72, 2, '#5a8ac0'],
+      [0, 8, 8, 24, '#24507c'], [64, 8, 8, 24, '#24507c'],
+      [35, 18, 2, 14, '#2e5a88'], [2, 32, 4, 6, '#2a2a2a'], [66, 32, 4, 6, '#2a2a2a'],
+      [12, 8, 12, 9, '#f0c030'],
+    ]);
+  }),
 };
 
 // Zone de collision au sol : w/h en pixels, top = position du haut de la zone dans le sprite
@@ -698,10 +777,28 @@ const PROPS = {
   plant:   { img: PROP_IMAGES.plant,   w: 16,  h: 10, top: 31 },
   printer: { img: PROP_IMAGES.printer, w: 44,  h: 20, top: 16 },
   cooler:  { img: PROP_IMAGES.cooler,  w: 20,  h: 12, top: 34 },
+  patio:   { img: PROP_IMAGES.patio,   w: 108, h: 76, top: 58 },
+  sofa:    { img: PROP_IMAGES.sofa,    w: 72,  h: 20, top: 14 },
 };
 
 const Textures = {
   floor: makeFloor(),
+  parquet: makeParquet(),
+  // Badge d'accès du niveau 2 : cordon, pince, carte avec photo
+  badge: pixelSprite([
+    '..rr....rr..',
+    '...rr..rr...',
+    '....rrrr....',
+    '.....kk.....',
+    '.wwwwwwwwww.',
+    '.wbbbbwgggw.',
+    '.wbssbwwwww.',
+    '.wbssbwgggw.',
+    '.wbbbbwwwww.',
+    '.wwwwwwgggw.',
+    '.wGGGGGGGGw.',
+    '.wwwwwwwwww.',
+  ], { r: '#d03030', k: '#888', w: '#f4f6fa', b: '#1423dc', s: '#f0c8a0', g: '#9aa0a8', G: '#96cd32' }, 3),
   gems: {
     blue: pixelSprite(GEM_ROWS, { b: '#3a8aff', w: '#cfe6ff', d: '#1a4aa0' }, 2),
     green: pixelSprite(GEM_ROWS, { b: '#3ad06a', w: '#d0ffd8', d: '#1a7a3a' }, 2),

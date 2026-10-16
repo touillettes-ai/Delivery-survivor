@@ -169,7 +169,7 @@ const WEAPONS = {
 
   laugh: {
     name: 'Rire de Sheryna', icon: '😂', maxLevel: 8,
-    desc: 'Un éclat de rire qui balaie un cône devant toi.',
+    desc: 'Un éclat de rire qui balaie un cône vers l\'ennemi le plus proche.',
     stats: l => ({
       dmg: 10 + l * 4,
       cd: +Math.max(0.6, 1.5 - l * 0.1).toFixed(2),
@@ -182,7 +182,9 @@ const WEAPONS = {
       if (w.timer > 0) return;
       w.timer = st.cd * p.cdMult;
       const reach = st.area * p.area;
-      const a = Math.atan2(p.facing.y, p.facing.x);
+      // Vise l'ennemi le plus proche à portée, sinon rit droit devant
+      const target = nearestEnemy(p.x, p.y, reach + 30);
+      const a = target ? Math.atan2(target.y - p.y, target.x - p.x) : Math.atan2(p.facing.y, p.facing.x);
       queryEnemies(p.x, p.y, reach + 40, e => {
         if (e.dead) return;
         const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
@@ -219,7 +221,7 @@ const WEAPONS = {
 
   diaper: {
     name: 'Couche sale', icon: '💩', maxLevel: 8,
-    desc: 'Lance des couches pleines qui éclatent en flaque puante sous les ennemis.',
+    desc: 'Lance des couches pleines qui éclatent en flaque parfumée à la rose sous les ennemis.',
     stats: l => ({
       dmg: 10 + l * 4,
       cd: +Math.max(0.8, 1.8 - l * 0.12).toFixed(2),

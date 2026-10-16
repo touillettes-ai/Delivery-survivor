@@ -23,6 +23,59 @@ const SPAWN_TABLE = [
 const BOSS_TIMES = [120, 240, 360, 480];
 const GAME_DURATION = 600; // 10 minutes = de 9h00 à 18h00
 
+// Difficulté par paliers : toutes les 1 min 30, plus d'ennemis et plus résistants
+const STAGE_DURATION = 90;
+const SPAWN_BASE_INTERVAL = 0.8; // secondes entre deux ennemis au palier 0
+const SPAWN_GROWTH = 1.45;       // cadence multipliée à chaque palier (palier 6 ≈ 11 ennemis/s)
+const HP_PER_STAGE = 0.75;       // +75% de PV des ennemis par palier
+const stageAt = t => Math.floor(t / STAGE_DURATION);
+
+// Le collègue qui suit Sheryna : taille (1 = taille normale) et ce qu'il raconte
+const FOLLOWER_SIZE = 0.8;
+const FOLLOWER_LINES = [
+  'Coucou Sheryna !',
+  'Tu vas où ?',
+  'Attends-moi !',
+  'On se fait un café ?',
+  'Tu as 5 minutes ?',
+  'T\'as vu mon mail ?',
+  'On mange ensemble ?',
+  'c est quand le CAC ?',
+  'tu vas courir ?',
+];
+// De temps en temps il fonce sur un ennemi proche et l'élimine d'un coup (sauf élites et directeurs)
+const FOLLOWER_DASH_EVERY = [8, 15]; // secondes entre deux attaques (min, max)
+const FOLLOWER_DASH_RANGE = 250;     // distance max de Sheryna à la cible
+const FOLLOWER_DASH_SPEED = 400;
+const FOLLOWER_KILL_LINES = ["Je t'ai géré ça !", 'Pas de quoi Sheryna !'];
+
+// ---- Niveaux ----
+// props : [type de meuble, probabilité par zone]
+const LEVELS = {
+  gtar: {
+    icon: '🏢', name: 'Survie à une journée au GTAR',
+    desc: "Tiens bon dans l'open space de 9h00 à 18h00. Un directeur débarque toutes les 2 minutes.",
+    floor: 'floor', props: [['island', 0.5], ['plant', 0.15], ['printer', 0.1], ['cooler', 0.08]],
+  },
+  pi: {
+    icon: '🌳', name: 'Rejoins la salle PI',
+    desc: 'Récupère ton badge, puis traverse les bureaux au parquet, entre patios et arbres, pour ouvrir la salle PI avant 18h00. Suis la flèche !',
+    floor: 'parquet', props: [['patio', 0.3], ['sofa', 0.15], ['plant', 0.2], ['cooler', 0.08]],
+    goal: true,
+  },
+};
+const PI_DISTANCE = 8000;    // distance entre le départ et la porte de la salle PI
+const BADGE_DISTANCE = 4000; // distance entre le départ et le badge (sur le côté)
+const PI_ROOM_W = 640, PI_ROOM_H = 480, PI_WALL = 16, PI_DOOR = 140;
+const PI_TALK = [
+  'Bienvenue au PI !',
+  'Voici les objectifs du PI',
+  'On passe aux dépendances',
+  'Les risques, on les ROAM ?',
+  'Vote de confiance : à vos doigts !',
+  'Des questions ?',
+];
+
 // Plantes cassables
 const PLANT_HP = 12;
 const PLANT_BOLT_CHANCE = 0.35; // probabilité de lâcher un éclair
@@ -38,10 +91,14 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
-const floorPattern = ctx.createPattern(Textures.floor, 'repeat');
+const floorPatterns = {
+  floor: ctx.createPattern(Textures.floor, 'repeat'),
+  parquet: ctx.createPattern(Textures.parquet, 'repeat'),
+};
 
 let game;
 let selectedChar = 'coline';
+let selectedLevel = 'gtar';
 
 // ---- Entrées ----
 const keys = {};
@@ -54,7 +111,17 @@ addEventListener('keydown', e => {
   if (game.state === 'start') {
     const mv = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] }[e.code];
     if (mv) { e.preventDefault(); moveCharCursor(...mv); }
-    if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); startGame(cursorChar); }
+    if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); openLevelSelect(cursorChar); }
+    return;
+  }
+  if (game.state === 'levels') {
+    const ids = Object.keys(LEVELS), i = ids.indexOf(selectedLevel);
+    const dy = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code];
+    if (dy) { e.preventDefault(); selectLevel(ids[(i + dy + ids.length) % ids.length]); }
+    const digit = /^(Digit|Numpad)[1-9]$/.test(e.code) ? +e.code.slice(-1) - 1 : -1;
+    if (ids[digit]) startGame(selectedChar, ids[digit]);
+    if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); startGame(selectedChar, selectedLevel); }
+    if (e.code === 'Escape') { hide('levels'); openCharSelect(); }
     return;
   }
   if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
@@ -93,9 +160,9 @@ function inputDir() {
 }
 
 // ---- Initialisation ----
-function newGame(charId) {
+function newGame(charId, levelId = selectedLevel) {
   game = {
-    state: 'start', time: 0, kills: 0, shake: 0,
+    state: 'start', level: levelId, time: 0, kills: 0, shake: 0,
     player: {
       charId, x: 0, y: 0, r: 14, hp: 100, maxHp: 100, speed: 150,
       level: 1, xp: 0, xpNext: 5, pendingLevels: 0,
@@ -104,11 +171,12 @@ function newGame(charId) {
     },
     enemies: [], projectiles: [], gems: [], pickups: [], effects: [], particles: [], texts: [],
     weapons: [], passives: {}, choices: [],
-    spawnTimer: 0, eliteTimer: 60, bossIndex: 0, banner: null,
+    spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, banner: null,
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
+  if (LEVELS[levelId].goal) createPiRoom();
   const ch = CHARACTERS[charId];
-  if (ch.follower) game.follower = { x: -30, y: 0, r: 12, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '' };
+  if (ch.follower) game.follower = { x: -30, y: 0, r: 10, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '', target: null, dashT: 0, dashTimer: 6 };
   if (ch.apply) ch.apply(game.player);
   for (const [id, lvl] of Object.entries(ch.passives || {})) {
     game.passives[id] = lvl;
@@ -117,12 +185,85 @@ function newGame(charId) {
   addWeapon(ch.weapon);
 }
 
-function startGame(charId) {
+function startGame(charId, levelId = selectedLevel) {
+  if (!CHARACTERS[charId] || !LEVELS[levelId]) return;
+  selectedChar = charId;
+  selectedLevel = levelId;
+  newGame(charId, levelId);
+  game.state = 'play';
+  if (game.goal) game.banner = { text: '🎯 Récupère ton badge, puis rejoins la salle PI !', t: 4 };
+  for (const id of ['start', 'levels', 'gameover', 'levelup', 'pause', 'chest']) hide(id);
+}
+
+// ---- Sélection du niveau (après le personnage) ----
+function buildLevelSelect() {
+  const box = document.getElementById('levelList');
+  box.innerHTML = '';
+  Object.entries(LEVELS).forEach(([id, lv], i) => {
+    const b = document.createElement('button');
+    b.className = 'card';
+    b.dataset.id = id;
+    b.innerHTML = `<span class="key">${i + 1}</span><span class="icon">${lv.icon}</span>
+      <div><b>Niveau ${i + 1} : ${lv.name}</b><p>${lv.desc}</p></div>`;
+    b.onclick = () => startGame(selectedChar, id);
+    b.onmouseenter = () => selectLevel(id);
+    box.appendChild(b);
+  });
+}
+
+function selectLevel(id) {
+  selectedLevel = id;
+  for (const b of document.querySelectorAll('#levelList .card')) b.classList.toggle('selected', b.dataset.id === id);
+}
+
+function openLevelSelect(charId) {
   if (!CHARACTERS[charId]) return;
   selectedChar = charId;
-  newGame(charId);
-  game.state = 'play';
-  for (const id of ['start', 'gameover', 'levelup', 'pause', 'chest']) hide(id);
+  hide('start');
+  show('levels');
+  game.state = 'levels';
+  document.getElementById('levelChar').textContent = 'avec ' + CHARACTERS[charId].name;
+  selectLevel(selectedLevel);
+}
+
+// ---- Salle PI (niveau 2) : quelque part au nord, porte en bas, verrouillée sans badge ----
+// Le badge est posé sur le côté (est ou ouest) : il faut faire un détour avant d'aller à la salle
+function createPiRoom() {
+  const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.6;
+  const doorX = Math.cos(a) * PI_DISTANCE, doorY = Math.sin(a) * PI_DISTANCE;
+  const x = doorX - PI_ROOM_W / 2, y = doorY - PI_ROOM_H, w = PI_ROOM_W, h = PI_ROOM_H, T = PI_WALL;
+  const side = (w - PI_DOOR) / 2;
+  const ba = a + (Math.random() < 0.5 ? -1 : 1) * (Math.PI / 3 + Math.random() * Math.PI / 4);
+  game.goal = {
+    x, y, w, h, doorX, doorY, talkT: 0, talker: 0, line: PI_TALK[0], seats: [],
+    badgeX: Math.cos(ba) * BADGE_DISTANCE, badgeY: Math.sin(ba) * BADGE_DISTANCE, lockedHintT: 0,
+  };
+  game.hasBadge = false;
+  game.walls = [
+    { x, y, w, h: T + 36 },                       // mur du fond (avec sa façade)
+    { x, y, w: T, h },                             // mur gauche
+    { x: x + w - T, y, w: T, h },                  // mur droit
+    { x, y: y + h - T, w: side, h: T },            // mur avant, de part et d'autre de la porte
+    { x: x + w - side, y: y + h - T, w: side, h: T },
+    { x: x + side, y: y + h - T, w: PI_DOOR, h: T, door: true }, // la porte, retirée quand on a le badge
+  ];
+  // Public assis face à la scène, avec une allée centrale
+  for (let row = 0; row < 5; row++)
+    for (let col = 0; col < 10; col++) {
+      if (col === 4 || col === 5) continue;
+      game.goal.seats.push({
+        x: x + 64 + col * 57, y: y + 190 + row * 50,
+        empty: Math.random() < 0.15,
+        hair: ['#2a1a10', '#6a4020', '#d8a040', '#1a1a1a', '#a04020', '#888'][Math.random() * 6 | 0],
+        shirt: ['#3a6ab0', '#c03a5a', '#3fa04a', '#e0a020', '#6a4aa0', '#d8dce4'][Math.random() * 6 | 0],
+        phase: Math.random() * 10,
+      });
+    }
+}
+
+function insidePiRoom(o) {
+  const g = game.goal;
+  return o.x > g.x + PI_WALL && o.x < g.x + g.w - PI_WALL && o.y > g.y + PI_WALL && o.y < g.y + g.h - PI_WALL - o.r;
 }
 
 function openCharSelect() {
@@ -160,7 +301,7 @@ function buildCharSelect() {
       b.dataset.id = id;
       b.innerHTML = `<span class="portrait"><img src="${img.toDataURL()}" style="width:${img.width * 1.25}px" alt=""></span>
         <span class="name">${c.name}</span><span class="role">${c.role}</span>`;
-      b.onclick = () => startGame(id);
+      b.onclick = () => openLevelSelect(id);
       b.onmouseenter = () => selectChar(id);
       row.lastElementChild.appendChild(b);
     }
@@ -241,11 +382,16 @@ function chunkProps(cx, cy) {
   let list = chunkCache.get(k);
   if (list) return list;
   list = [];
-  // Zone de départ dégagée autour de (0,0)
-  if (!((cx === 0 || cx === -1) && (cy === 0 || cy === -1))) {
+  // Zone de départ dégagée autour de (0,0), et rien autour de la salle PI
+  const g = game.goal, m = 120;
+  const nearGoal = g && (
+    (cx * CHUNK < g.x + g.w + m && (cx + 1) * CHUNK > g.x - m && cy * CHUNK < g.y + g.h + m && (cy + 1) * CHUNK > g.y - m) ||
+    (cx === Math.floor(g.badgeX / CHUNK) && cy === Math.floor(g.badgeY / CHUNK))); // badge toujours accessible
+  if (!((cx === 0 || cx === -1) && (cy === 0 || cy === -1)) && !nearGoal) {
     const rnd = mulberry32((cx * 73856093) ^ (cy * 19349663));
     const r = rnd();
-    const type = r < 0.5 ? 'island' : r < 0.65 ? 'plant' : r < 0.75 ? 'printer' : r < 0.83 ? 'cooler' : null;
+    let type = null, acc = 0;
+    for (const [t, w] of LEVELS[game.level].props) if (r < (acc += w)) { type = t; break; }
     if (type) {
       const def = PROPS[type];
       const x = cx * CHUNK + 96 + rnd() * (CHUNK - 192);
@@ -286,26 +432,29 @@ function breakPlant(e) {
   if (Math.random() < PLANT_BOLT_CHANCE) game.pickups.push({ x: pr.x, y: pr.y, kind: 'bolt' });
 }
 
-// Repousse un cercle hors des meubles (glisse le long des bords)
+// Repousse un cercle hors des meubles et des murs (glisse le long des bords)
 function pushOutOfProps(o) {
   forPropsNear(o.x, o.y, pr => {
-    if (pr.broken) return;
-    const left = pr.x - pr.w / 2, right = pr.x + pr.w / 2, top = pr.y - pr.h / 2, bottom = pr.y + pr.h / 2;
-    const nx = Math.max(left, Math.min(o.x, right)), ny = Math.max(top, Math.min(o.y, bottom));
-    const dx = o.x - nx, dy = o.y - ny, d2 = dx * dx + dy * dy;
-    if (d2 >= o.r * o.r) return;
-    if (d2 > 0) {
-      const d = Math.sqrt(d2);
-      o.x = nx + dx / d * o.r;
-      o.y = ny + dy / d * o.r;
-    } else {
-      const l = o.x - left, r = right - o.x, t = o.y - top, b = bottom - o.y, m = Math.min(l, r, t, b);
-      if (m === l) o.x = left - o.r;
-      else if (m === r) o.x = right + o.r;
-      else if (m === t) o.y = top - o.r;
-      else o.y = bottom + o.r;
-    }
+    if (!pr.broken) pushOutOfRect(o, pr.x - pr.w / 2, pr.y - pr.h / 2, pr.x + pr.w / 2, pr.y + pr.h / 2);
   });
+  if (game.walls) for (const wl of game.walls) pushOutOfRect(o, wl.x, wl.y, wl.x + wl.w, wl.y + wl.h);
+}
+
+function pushOutOfRect(o, left, top, right, bottom) {
+  const nx = Math.max(left, Math.min(o.x, right)), ny = Math.max(top, Math.min(o.y, bottom));
+  const dx = o.x - nx, dy = o.y - ny, d2 = dx * dx + dy * dy;
+  if (d2 >= o.r * o.r) return;
+  if (d2 > 0) {
+    const d = Math.sqrt(d2);
+    o.x = nx + dx / d * o.r;
+    o.y = ny + dy / d * o.r;
+  } else {
+    const l = o.x - left, r = right - o.x, t = o.y - top, b = bottom - o.y, m = Math.min(l, r, t, b);
+    if (m === l) o.x = left - o.r;
+    else if (m === r) o.x = right + o.r;
+    else if (m === t) o.y = top - o.r;
+    else o.y = bottom + o.r;
+  }
 }
 
 // ---- Ennemis ----
@@ -323,7 +472,7 @@ function spawnEnemy(type = pickEnemyType(), rank = 'normal') {
   const elite = rank === 'elite', boss = rank === 'boss';
   const a = Math.random() * Math.PI * 2, dist = Math.hypot(W, H) / 2 + (boss ? 80 : 40);
   const scale = boss ? 2.5 : elite ? 2 : 1;
-  const hp = boss ? 400 + game.time * 5 : def.hp * (1 + game.time / 120) * (elite ? 15 : 1);
+  const hp = boss ? 400 + game.time * 5 : def.hp * (1 + stageAt(game.time) * HP_PER_STAGE) * (elite ? 15 : 1);
   game.enemies.push({
     type, x: p.x + Math.cos(a) * dist, y: p.y + Math.sin(a) * dist,
     hp, maxHp: hp, speed: def.speed * (elite ? 0.8 : 1), dmg: def.dmg * (elite ? 2 : 1),
@@ -403,7 +552,29 @@ function gainXp(v) {
 function update(dt) {
   game.time += dt;
   const p = game.player;
-  if (game.time >= GAME_DURATION) { endGame(true); return; }
+  if (game.time >= GAME_DURATION) { endGame(!game.goal); return; } // niveau 2 : à 18h00 la PI est finie
+  if (game.goal) {
+    const g = game.goal;
+    if ((g.talkT -= dt) <= 0) { // les orateurs parlent à tour de rôle
+      g.talkT = 3.5;
+      g.talker = 1 - g.talker;
+      g.line = PI_TALK[Math.random() * PI_TALK.length | 0];
+    }
+    if (!game.hasBadge) {
+      if (Math.hypot(p.x - g.badgeX, p.y - g.badgeY) < p.r + 22) {
+        game.hasBadge = true;
+        game.walls = game.walls.filter(wl => !wl.door); // la porte s'ouvre
+        game.banner = { text: '🪪 Badge récupéré ! Direction la salle PI', t: 3.5 };
+        for (let i = 0; i < 20; i++) {
+          const pa = Math.random() * Math.PI * 2, s = 60 + Math.random() * 80;
+          game.particles.push({ x: g.badgeX, y: g.badgeY, vx: Math.cos(pa) * s, vy: Math.sin(pa) * s, t: 0, life: 0.6, color: i % 2 ? '#96cd32' : '#ffd866' });
+        }
+      } else if ((g.lockedHintT -= dt) <= 0 && Math.hypot(p.x - g.doorX, p.y - g.doorY) < 90) {
+        g.lockedHintT = 4;
+        game.banner = { text: '🔒 Porte verrouillée : va chercher ton badge !', t: 2.5 };
+      }
+    }
+  }
   if (game.banner && (game.banner.t -= dt) <= 0) game.banner = null;
 
   // Déplacement
@@ -417,38 +588,76 @@ function update(dt) {
   p.x += d.x * p.speed * dt;
   p.y += d.y * p.speed * dt;
   pushOutOfProps(p);
+  if (game.goal && insidePiRoom(p)) { endGame(true); return; }
   p.invuln -= dt;
   p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
 
-  // Le suiveur de Sheryna : la colle à distance, et dit coucou de temps en temps
+  // Le suiveur de Sheryna : la colle à distance, dit coucou de temps en temps,
+  // et fonce parfois sur un ennemi proche pour l'éliminer d'un coup
   const f = game.follower;
   if (f) {
+    if (!f.target && (f.dashTimer -= dt) <= 0) {
+      f.dashTimer = FOLLOWER_DASH_EVERY[0] + Math.random() * (FOLLOWER_DASH_EVERY[1] - FOLLOWER_DASH_EVERY[0]);
+      let best = null, bd = FOLLOWER_DASH_RANGE ** 2;
+      for (const e of game.enemies) {
+        if (e.dead || e.prop || e.boss || e.elite) continue;
+        const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (best) { f.target = best; f.dashT = 3; }
+    }
+    const tg = f.target;
+    if (tg && (tg.dead || (f.dashT -= dt) <= 0 || Math.hypot(p.x - f.x, p.y - f.y) > 450)) f.target = null; // cible perdue : il revient
+    else if (tg) {
+      const tx = tg.x - f.x, ty = tg.y - f.y, td = Math.hypot(tx, ty) || 1;
+      f.moving = true;
+      if (Math.abs(tx) > 2) f.dirX = Math.sign(tx);
+      if (td <= f.r + tg.r + 4) {
+        killEnemy(tg);
+        game.texts.push({ x: tg.x, y: tg.y - tg.r, text: '💥', t: 0, life: 0.8 });
+        game.shake = Math.max(game.shake, 4);
+        f.target = null;
+        f.text = FOLLOWER_KILL_LINES[Math.random() * FOLLOWER_KILL_LINES.length | 0];
+        f.bubble = 2.5;
+        f.bubbleTimer = Math.max(f.bubbleTimer, 4);
+      } else {
+        const step = Math.min(td, FOLLOWER_DASH_SPEED * dt);
+        f.x += tx / td * step;
+        f.y += ty / td * step;
+      }
+    }
     const fx = p.x - f.x, fy = p.y - f.y, fd = Math.hypot(fx, fy);
-    f.moving = fd > 34;
-    if (f.moving) {
+    if (!f.target) f.moving = fd > 34;
+    if (!f.target && f.moving) {
       const step = Math.min(fd - 34, p.speed * 1.05 * dt);
       f.x += fx / fd * step;
       f.y += fy / fd * step;
       if (Math.abs(fx) > 2) f.dirX = Math.sign(fx);
     }
-    if (fd > 400) { f.x = p.x - p.dirX * 30; f.y = p.y; } // perdu de vue : il réapparaît à côté d'elle
+    if (!f.target && fd > 400) { f.x = p.x - p.dirX * 30; f.y = p.y; } // perdu de vue : il réapparaît à côté d'elle
     pushOutOfProps(f);
     f.bubble -= dt;
     if ((f.bubbleTimer -= dt) <= 0) {
       f.bubble = 2.5;
       f.bubbleTimer = 6 + Math.random() * 8;
-      f.text = Math.random() < 0.5 ? 'Coucou Shery !' : 'Coucou Sheryna !';
+      let text;
+      do text = FOLLOWER_LINES[Math.random() * FOLLOWER_LINES.length | 0]; while (text === f.text); // jamais 2 fois de suite la même
+      f.text = text;
     }
   }
   game.shake = Math.max(0, game.shake - 30 * dt);
 
   // Apparition des ennemis
+  const stage = stageAt(game.time);
+  if (stage > game.stage) {
+    game.stage = stage;
+    game.banner = { text: '📈 La charge de travail augmente !', t: 3 };
+  }
   game.spawnTimer -= dt;
-  const interval = Math.max(0.1, 0.8 - game.time / 120);
+  const interval = SPAWN_BASE_INTERVAL / SPAWN_GROWTH ** stage;
   while (game.spawnTimer <= 0) {
     game.spawnTimer += interval;
-    const n = 1 + Math.floor(game.time / 45);
-    for (let i = 0; i < n; i++) spawnEnemy();
+    spawnEnemy();
   }
   game.eliteTimer -= dt;
   if (game.eliteTimer <= 0) { game.eliteTimer = 60; spawnEnemy(pickEnemyType(), 'elite'); }
@@ -691,10 +900,18 @@ function togglePause() {
 
 function endGame(won) {
   game.state = 'over';
-  const name = CHARACTERS[game.player.charId].name;
-  document.getElementById('endTitle').textContent = won ? '18h00 : journée terminée !' : 'Burn-out !';
-  document.getElementById('stats').innerHTML =
-    (won ? `${name} rentre enfin chez soi.<br>` : `${name} a craqué à <b>${officeClock(game.time)}</b><br>`) +
+  const name = CHARACTERS[game.player.charId].name, clock = officeClock(game.time);
+  const late = game.time >= GAME_DURATION;
+  let title, text;
+  if (game.goal) {
+    title = won ? 'Salle PI atteinte !' : late ? '18h00 : la PI est finie !' : 'Burn-out !';
+    text = won ? `${name} rejoint la salle PI à <b>${clock}</b>.` : late ? (game.hasBadge ? `${name} n'a jamais trouvé la salle PI.` : `${name} n'a jamais retrouvé son badge.`) : `${name} a craqué à <b>${clock}</b>, avant la PI.`;
+  } else {
+    title = won ? '18h00 : journée terminée !' : 'Burn-out !';
+    text = won ? `${name} rentre enfin chez soi.` : `${name} a craqué à <b>${clock}</b>`;
+  }
+  document.getElementById('endTitle').textContent = title;
+  document.getElementById('stats').innerHTML = text + '<br>' +
     `Niveau : <b>${game.player.level}</b><br>Collègues neutralisés : <b>${game.kills}</b><br>Directeurs vaincus : <b>${game.bossIndex - game.enemies.filter(e => e.boss).length}</b>`;
   show('gameover');
 }
@@ -722,9 +939,24 @@ function draw() {
   ctx.setTransform(1, 0, 0, 1, -camX, -camY);
   ctx.imageSmoothingEnabled = false;
 
-  // Moquette
-  ctx.fillStyle = floorPattern;
+  // Sol du niveau (moquette ou parquet)
+  ctx.fillStyle = floorPatterns[LEVELS[game.level].floor];
   ctx.fillRect(camX, camY, W, H);
+
+  // Salle PI
+  const g = game.goal;
+  if (g && g.x < camX + W && g.x + g.w > camX && g.y - 60 < camY + H && g.y + g.h + 20 > camY) drawPiRoom(g);
+  // Badge à récupérer : posé au sol, brille et flotte
+  if (g && !game.hasBadge && inView(g.badgeX, g.badgeY)) {
+    const glow = 34 + Math.sin(game.time * 5) * 6;
+    const gr = ctx.createRadialGradient(g.badgeX, g.badgeY, 0, g.badgeX, g.badgeY, glow);
+    gr.addColorStop(0, 'rgba(150,205,50,0.6)');
+    gr.addColorStop(1, 'rgba(150,205,50,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(g.badgeX - glow, g.badgeY - glow, glow * 2, glow * 2);
+    const img = Textures.badge;
+    ctx.drawImage(img, Math.round(g.badgeX - img.width / 2), Math.round(g.badgeY - img.height / 2 + Math.sin(game.time * 3) * 3));
+  }
 
   // Aura de café
   for (const w of game.weapons) {
@@ -742,28 +974,36 @@ function draw() {
     ctx.stroke();
   }
 
-  // Flaques des couches sales (au sol, avec des vapeurs vertes)
+  // Flaques des couches (au sol, parfum de rose : flaque rose et fleurs qui s'envolent)
   for (const w of game.weapons) {
     if (w.id !== 'diaper' || !w.zones) continue;
     for (const z of w.zones) {
-      ctx.globalAlpha = Math.min(1, z.t / 0.5) * 0.8;
-      ctx.fillStyle = '#5a3a14';
+      const fade = Math.min(1, z.t / 0.5);
+      ctx.globalAlpha = fade * 0.8;
+      ctx.fillStyle = '#c8325e';
       ctx.beginPath();
       ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#7a5020';
+      ctx.fillStyle = '#f07aa0';
       ctx.beginPath();
       ctx.ellipse(z.x - z.r * 0.2, z.y - z.r * 0.1, z.r * 0.5, z.r * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#8ac040';
-      ctx.lineWidth = 2;
       for (let i = -1; i <= 1; i++) {
-        const sx = z.x + i * z.r * 0.4, sy = z.y - 10 - (game.time * 20 + i * 7 + 20) % 20;
+        const ph = (game.time * 0.7 + i * 0.37 + z.x * 0.013) % 1; // 0 → 1 pendant la montée
+        const fx = z.x + i * z.r * 0.45 + Math.sin(game.time * 3 + i * 2) * 4;
+        const fy = z.y - 4 - ph * 36;
+        ctx.globalAlpha = fade * (1 - ph);
+        ctx.fillStyle = i === 0 ? '#e0304a' : '#ff8ab0';
+        for (let k = 0; k < 5; k++) {
+          const a = k * Math.PI * 2 / 5 + game.time;
+          ctx.beginPath();
+          ctx.arc(fx + Math.cos(a) * 3, fy + Math.sin(a) * 3, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#ffd866';
         ctx.beginPath();
-        ctx.moveTo(sx, sy + 8);
-        ctx.quadraticCurveTo(sx + 4, sy + 4, sx, sy);
-        ctx.quadraticCurveTo(sx - 4, sy - 4, sx, sy - 8);
-        ctx.stroke();
+        ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
   }
@@ -945,7 +1185,12 @@ function draw() {
 
   // Bulle du suiveur, au-dessus de tout le reste
   const f = game.follower;
-  if (f && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height / 2 - 4);
+  if (f && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * FOLLOWER_SIZE / 2 - 4);
+  // Bulle de l'orateur qui parle sur la scène de la PI
+  if (g && g.talkT > 0.5) {
+    const sx = g.doorX + (g.talker ? 50 : -50), sy = g.y + 104;
+    if (sx > camX - 100 && sx < camX + W + 100 && sy > camY - 40 && sy < camY + H + 80) drawBubble(g.line, sx, sy - Sprites.speakerA.right.height / 2);
+  }
 
   // Chiffres de dégâts
   ctx.font = 'bold 14px monospace';
@@ -982,14 +1227,105 @@ function drawPlayer(p) {
   ctx.fillRect(Math.round(p.x - bw / 2), Math.round(by), Math.round(bw * p.hp / p.maxHp), 4);
 }
 
+// La salle PI : murs, écran, scène avec 2 orateurs et public assis (dessinée au sol, sous les personnages)
+function drawPiRoom(g) {
+  const { x, y, w, h } = g, T = PI_WALL, cx = g.doorX;
+  // Sol : moquette bleue + tapis rouge de la porte à la scène
+  ctx.fillStyle = '#2c3a58';
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#a0303e';
+  ctx.fillRect(cx - 36, y + 140, 72, h - 140);
+  ctx.fillStyle = '#c8a040';
+  ctx.fillRect(cx - 36, y + 140, 3, h - 140);
+  ctx.fillRect(cx + 33, y + 140, 3, h - 140);
+  // Mur du fond avec sa façade et l'écran de projection
+  ctx.fillStyle = '#8a909c';
+  ctx.fillRect(x, y, w, T);
+  ctx.fillStyle = '#d8dce4';
+  ctx.fillRect(x, y + T, w, 36);
+  ctx.fillStyle = '#a8aeb8';
+  ctx.fillRect(x, y + T + 32, w, 4);
+  ctx.fillStyle = '#1a1e26';
+  ctx.fillRect(cx - 104, y + 4, 208, 44);
+  ctx.fillStyle = '#f4f6fa';
+  ctx.fillRect(cx - 100, y + 8, 200, 36);
+  ctx.fillStyle = '#1423dc';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PI PLANNING', cx, y + 26);
+  ctx.fillStyle = '#96cd32';
+  ctx.fillRect(cx - 60, y + 32, 120 * ((game.time / 20) % 1), 4); // les slides défilent
+  // Scène
+  ctx.fillStyle = '#6a4024';
+  ctx.fillRect(cx - 200, y + 56, 400, 76);
+  ctx.fillStyle = '#8a5a34';
+  ctx.fillRect(cx - 200, y + 56, 400, 4);
+  ctx.fillStyle = '#4a2a14';
+  ctx.fillRect(cx - 200, y + 128, 400, 10);
+  for (const [k, spr] of [[-1, Sprites.speakerA.right], [1, Sprites.speakerB.left]]) {
+    const talking = g.talker === (k > 0 ? 1 : 0) && g.talkT > 0.5;
+    const bob = talking ? Math.round(Math.sin(game.time * 10) * 1.5) : 0;
+    ctx.drawImage(spr, Math.round(cx + k * 50 - spr.width / 2), Math.round(y + 104 - spr.height / 2 + bob));
+  }
+  // Public vu de dos : buste, tête, puis dossier de chaise devant
+  for (const s of g.seats) {
+    if (!s.empty) {
+      const nod = Math.sin(game.time * 2 + s.phase) > 0.95 ? 2 : 0;
+      ctx.fillStyle = s.shirt;
+      ctx.fillRect(s.x - 10, s.y - 16, 20, 14);
+      ctx.fillStyle = s.hair;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y - 22 + nod, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#1e2228';
+    ctx.fillRect(s.x - 13, s.y - 6, 26, 14);
+    ctx.fillStyle = '#3a404c';
+    ctx.fillRect(s.x - 13, s.y - 6, 26, 3);
+  }
+  // Murs latéraux et avant (porte au milieu, en bas)
+  ctx.fillStyle = '#8a909c';
+  ctx.fillRect(x, y, T, h);
+  ctx.fillRect(x + w - T, y, T, h);
+  const side = (w - PI_DOOR) / 2;
+  ctx.fillRect(x, y + h - T, side, T);
+  ctx.fillRect(x + w - side, y + h - T, side, T);
+  ctx.fillStyle = '#6a707c';
+  ctx.fillRect(x, y + h, side, 8);
+  ctx.fillRect(x + w - side, y + h, side, 8);
+  // Porte : fermée avec un cadenas sans badge, battants ouverts avec
+  if (!game.hasBadge) {
+    ctx.fillStyle = '#5a6a80';
+    ctx.fillRect(x + side, y + h - T, PI_DOOR, T);
+    ctx.fillStyle = '#44526a';
+    ctx.fillRect(x + side, y + h, PI_DOOR, 8);
+    ctx.fillRect(cx - 1, y + h - T, 2, T + 8);
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒', cx, y + h + 4);
+  } else {
+    ctx.fillStyle = '#5a6a80';
+    ctx.fillRect(x + side, y + h - T - 40, 6, 40);
+    ctx.fillRect(x + w - side - 6, y + h - T - 40, 6, 40);
+  }
+  // Panneau au-dessus de la porte
+  ctx.fillStyle = '#96cd32';
+  ctx.fillRect(cx - 44, y + h - 30, 88, 18);
+  ctx.fillStyle = '#0a1018';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText('SALLE PI', cx, y + h - 17);
+  ctx.textAlign = 'left';
+}
+
 function drawFollower(f) {
   const img = f.dirX < 0 ? Sprites.follower.left : Sprites.follower.right;
+  const w = Math.round(img.width * FOLLOWER_SIZE), h = Math.round(img.height * FOLLOWER_SIZE);
   const bob = f.moving ? -Math.abs(Math.sin(game.time * 12 + 1)) * 3 : 0;
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
-  ctx.ellipse(f.x, f.y + img.height / 2 - 2, 12, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(f.x, f.y + h / 2 - 2, 10, 3.5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.drawImage(img, Math.round(f.x - img.width / 2), Math.round(f.y - img.height / 2 + bob));
+  ctx.drawImage(img, Math.round(f.x - w / 2), Math.round(f.y - h / 2 + bob), w, h);
 }
 
 // Bulle de BD dont la pointe est en (x, y)
@@ -1017,6 +1353,41 @@ function drawBubble(text, x, y) {
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, by + h / 2 + 1);
   ctx.textBaseline = 'alphabetic';
+}
+
+function drawSlotRow(items, slots, y, color) {
+  const sw = 40, sh = 26, step = 44;
+  for (let i = 0; i < slots; i++) {
+    const x = 10 + i * step, it = items[i];
+    ctx.lineWidth = 2;
+    if (!it) {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(x, y, sw, sh);
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.strokeRect(x + 1, y + 1, sw - 2, sh - 2);
+      ctx.setLineDash([]);
+      continue;
+    }
+    const maxed = it.lvl >= it.max;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x, y, sw, sh);
+    ctx.strokeStyle = maxed ? '#ffd866' : color;
+    ctx.strokeRect(x + 1, y + 1, sw - 2, sh - 2);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '15px sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(it.icon, x + 3, y + sh / 2 + 1);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 11px monospace';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#000';
+    ctx.strokeText(maxed ? 'M' : it.lvl, x + sw - 3, y + sh - 4);
+    ctx.fillStyle = maxed ? '#ffd866' : '#fff';
+    ctx.fillText(maxed ? 'M' : it.lvl, x + sw - 3, y + sh - 4);
+  }
 }
 
 function drawHud() {
@@ -1066,6 +1437,40 @@ function drawHud() {
     ctx.fillText('👔 ' + boss.name.toUpperCase(), W / 2, by + 26);
   }
 
+  // Niveau 2 : flèche vers la porte de la salle PI, en haut au milieu
+  if (game.goal && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
+    const g = game.goal;
+    const tx = game.hasBadge ? g.doorX : g.badgeX, ty = game.hasBadge ? g.doorY + 30 : g.badgeY;
+    const dx = tx - p.x, dy = ty - p.y;
+    const ay = boss ? 136 : 104, a = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(W / 2, ay);
+    ctx.rotate(a);
+    ctx.fillStyle = '#96cd32';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(20, 0);
+    ctx.lineTo(-4, -14);
+    ctx.lineTo(-4, -6);
+    ctx.lineTo(-18, -6);
+    ctx.lineTo(-18, 6);
+    ctx.lineTo(-4, 6);
+    ctx.lineTo(-4, 14);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.restore();
+    const label = `${game.hasBadge ? 'Salle PI' : '🪪 Badge'} · ${Math.round(Math.hypot(dx, dy) / 40)} m`;
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#000';
+    ctx.strokeText(label, W / 2, ay + 34);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, W / 2, ay + 34);
+  }
+
   // Bandeau d'annonce
   if (game.banner) {
     ctx.globalAlpha = Math.min(1, game.banner.t);
@@ -1108,23 +1513,13 @@ function drawHud() {
   ctx.strokeText('👔 ' + game.kills, W - 12, 44);
   ctx.fillText('👔 ' + game.kills, W - 12, 44);
 
-  // Inventaire
-  ctx.textAlign = 'left';
-  ctx.font = '16px sans-serif';
-  let x = 10;
-  for (const w of game.weapons) {
-    const t = `${WEAPONS[w.id].icon}${w.level}`;
-    ctx.strokeText(t, x, 44);
-    ctx.fillText(t, x, 44);
-    x += 44;
-  }
-  x = 10;
-  for (const [id, lvl] of Object.entries(game.passives)) {
-    const t = `${PASSIVES[id].icon}${lvl}`;
-    ctx.strokeText(t, x, 70);
-    ctx.fillText(t, x, 70);
-    x += 44;
-  }
+  // Inventaire : une case par emplacement, les cases vides restent visibles
+  // Rien à afficher tant que le personnage n'est pas choisi
+  const inGame = game.state !== 'title' && game.state !== 'start' && game.state !== 'levels';
+  const weaponSlots = !inGame ? [] : game.weapons.map(w => ({ icon: WEAPONS[w.id].icon, lvl: w.level, max: WEAPONS[w.id].maxLevel }));
+  const passiveSlots = !inGame ? [] : Object.entries(game.passives).map(([id, lvl]) => ({ icon: PASSIVES[id].icon, lvl, max: PASSIVES[id].maxLevel }));
+  drawSlotRow(weaponSlots, MAX_WEAPONS, 24, '#4aa3df');
+  drawSlotRow(passiveSlots, MAX_PASSIVES, 54, '#8fd16a');
 
   // Joystick virtuel
   if (touch.active && game.state === 'play') {
@@ -1156,6 +1551,7 @@ document.getElementById('changeBtn').onclick = showCharSelect;
 document.getElementById('chestBtn').onclick = closeChest;
 document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
+buildLevelSelect();
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);
