@@ -869,5 +869,26 @@ const Textures = {
       for (let x = 0; x < 5; x++) if (row[x] === 'X') g.fillRect(4 + x * 2.4, 4 + y * 2.4, 2.4, 2.4);
     });
   }),
+  // Légendaires : tasse de café fumante et cocktail Molotov (bouteille + chiffon enflammé)
+  cup: pixelSprite([
+    '..s.s...',
+    '...s.s..',
+    'wwwwww..',
+    'wccccwww',
+    'wccccw.w',
+    'wwwwwwww',
+    'wwwwww..',
+    '.wwww...',
+  ], { s: '#e8e8e8', w: '#fafafa', c: '#5a3010' }, 2),
+  molotov: pixelSprite([
+    '..fy..',
+    '.fyf..',
+    '..rr..',
+    '..gg..',
+    '.gGGg.',
+    'gGGGgg',
+    'gGGGgg',
+    'gggggg',
+  ], { f: '#ff7020', y: '#ffe040', r: '#d8d0c0', g: '#2a7a3a', G: '#5ab06a' }, 2),
 };
 const AI_LOGOS = ['aiClaude', 'aiGpt', 'aiGemini', 'aiMistral'];

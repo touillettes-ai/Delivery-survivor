@@ -90,7 +90,7 @@ const CHARACTERS = {
   sandie: {
     name: 'Sandie', role: 'Change Manager', team: 'Process',
     desc: 'Longs cheveux châtains. Aucun changement ne passe sans elle.',
-    weapon: 'coffee',
+    weapon: 'stapler',
     passives: { haste: 1 },
   },
   stephan: {
@@ -102,7 +102,7 @@ const CHARACTERS = {
   bastien: {
     name: 'Bastien', role: 'Incident Manager', team: 'Process',
     desc: 'Son crâne chauve reflète les néons. Personne ne lui résiste.',
-    weapon: 'stapler',
+    weapon: 'coffee',
     passives: { might: 1 },
   },
   olivier: {

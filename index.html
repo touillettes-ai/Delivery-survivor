@@ -72,6 +72,8 @@
     .reward .icon { font-size: 40px; }
     .reward em { color: #ffd866; font-style: normal; margin-left: 6px; }
     .reward p { margin: 4px 0 0; font-size: 13px; color: #bcc; }
+    .reward.legendary { border-color: #ff3a6a; box-shadow: 0 0 18px rgba(255, 58, 106, 0.6); }
+    .reward.legendary em { color: #ff6a8a; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -125,7 +127,7 @@
 
   <div id="chest" class="overlay hidden">
     <div class="panel">
-      <h1>Coffre du directeur !<small>Une de tes armes monte de niveau</small></h1>
+      <h1>Coffre du directeur !<small id="chestSub">Une de tes armes monte de niveau</small></h1>
       <div id="chestContent"></div>
       <button class="btn" id="chestBtn">Continuer</button>
     </div>

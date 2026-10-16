@@ -1,6 +1,8 @@
 // ==== Boucle principale du jeu ====
 const MAX_ENEMIES = 500;
-const MAX_WEAPONS = 6, MAX_PASSIVES = 6;
+const MAX_WEAPONS = 4, MAX_PASSIVES = 4;
+const TEST_START_LEGENDARY = false; // TEST TEMPORAIRE (à supprimer) : arme de départ légendaire
+const XP_FACTOR = 0.95; // XP nécessaire pour monter de niveau (0.95 = -5%)
 
 // Les collègues qui veulent "juste 5 minutes" de ton temps (flying : ignore le mobilier)
 const ENEMIES = {
@@ -29,6 +31,12 @@ const SPAWN_BASE_INTERVAL = 0.8; // secondes entre deux ennemis au palier 0
 const SPAWN_GROWTH = 1.45;       // cadence multipliée à chaque palier (palier 6 ≈ 11 ennemis/s)
 const HP_PER_STAGE = 0.75;       // +75% de PV des ennemis par palier
 const stageAt = t => Math.floor(t / STAGE_DURATION);
+// Chaque arme légendaire rend la partie un peu plus dure (cadence d'apparition et PV des ennemis)
+const LEGEND_DIFFICULTY = 0.15;  // +15% par arme légendaire
+const LEGEND_BOSS_DELAY = 4;     // secondes avant qu'un directeur vienne quand une arme est au max
+const MAX_LEGENDARY = 2;         // nombre max d'armes légendaires par partie
+const legendCount = () => game.weapons.filter(w => w.legendary).length;
+const legendMult = () => 1 + LEGEND_DIFFICULTY * game.weapons.filter(w => w.legendary).length;
 
 // Le collègue qui suit Sheryna : taille (1 = taille normale) et ce qu'il raconte
 const FOLLOWER_SIZE = 0.8;
@@ -49,6 +57,13 @@ const FOLLOWER_DASH_RANGE = 250;     // distance max de Sheryna à la cible
 const FOLLOWER_DASH_SPEED = 400;
 const FOLLOWER_KILL_LINES = ["Je t'ai géré ça !", 'Pas de quoi Sheryna !'];
 const FOLLOWER_MEETING = 30; // durée de sa réunion (double-clic dessus), en secondes
+
+// Couleur de l'aura des armes selon leur niveau (index = niveau, 1 = pas d'aura)
+// Index 7 = version légendaire
+const LEVEL_COLORS = [null, null, '#ffffff', '#7fd8ff', '#3ad06a', '#b060ff', '#ffd040', '#ff3a6a'];
+const LEGENDARY_LEVEL = 7;
+const LEVEL_MAX_SPARKLE = 6; // à partir de ce niveau, les projectiles laissent des étincelles
+const visualLevel = w => w.legendary ? LEGENDARY_LEVEL : w.level;
 
 // ---- Niveaux ----
 // props : [type de meuble, probabilité par zone]
@@ -183,13 +198,13 @@ function newGame(charId, levelId = selectedLevel) {
     state: 'start', level: levelId, time: 0, kills: 0, shake: 0,
     player: {
       charId, x: 0, y: 0, r: 14, hp: 100, maxHp: 100, speed: 150,
-      level: 1, xp: 0, xpNext: 5, pendingLevels: 0,
+      level: 1, xp: 0, xpNext: Math.round(5 * XP_FACTOR), pendingLevels: 0,
       magnet: 70, might: 1, cdMult: 1, area: 1, regen: 0, armor: 0, xpMult: 1, projSpeed: 1,
       invuln: 0, facing: { x: 1, y: 0 }, dirX: 1, moving: false,
     },
     enemies: [], projectiles: [], gems: [], pickups: [], effects: [], particles: [], texts: [],
     weapons: [], passives: {}, choices: [],
-    spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, banner: null,
+    spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, bossKills: 0, legendBossT: LEGEND_BOSS_DELAY, banner: null,
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
   if (LEVELS[levelId].goal) createPiRoom();
@@ -201,6 +216,8 @@ function newGame(charId, levelId = selectedLevel) {
     for (let i = 0; i < lvl; i++) PASSIVES[id].apply(game.player);
   }
   addWeapon(ch.weapon);
+  // TEST TEMPORAIRE (à supprimer) : on démarre avec l'arme de départ en version légendaire
+  if (TEST_START_LEGENDARY) Object.assign(game.weapons[0], { level: WEAPONS[ch.weapon].maxLevel, legendary: true });
 }
 
 function startGame(charId, levelId = selectedLevel) {
@@ -490,7 +507,7 @@ function spawnEnemy(type = pickEnemyType(), rank = 'normal') {
   const elite = rank === 'elite', boss = rank === 'boss';
   const a = Math.random() * Math.PI * 2, dist = Math.hypot(W, H) / 2 + (boss ? 80 : 40);
   const scale = boss ? 2.5 : elite ? 2 : 1;
-  const hp = boss ? 400 + game.time * 5 : def.hp * (1 + stageAt(game.time) * HP_PER_STAGE) * (elite ? 15 : 1);
+  const hp = boss ? 400 + game.time * 5 : def.hp * (1 + stageAt(game.time) * HP_PER_STAGE) * legendMult() * (elite ? 15 : 1);
   game.enemies.push({
     type, x: p.x + Math.cos(a) * dist, y: p.y + Math.sin(a) * dist,
     hp, maxHp: hp, speed: def.speed * (elite ? 0.8 : 1), dmg: def.dmg * (elite ? 2 : 1),
@@ -519,6 +536,7 @@ function killEnemy(e) {
   game.gems.push({ x: e.x, y: e.y, value: e.xp, magnet: false, speed: 0 });
   if (e.elite || Math.random() < 0.004) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'croissant' });
   if (e.boss) {
+    game.bossKills++;
     game.pickups.push({ x: e.x, y: e.y, kind: 'chest' });
     game.banner = { text: `${e.name} vaincu ! Récupère son coffre`, t: 3 };
     game.shake = 12;
@@ -561,7 +579,7 @@ function gainXp(v) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    p.xpNext = Math.floor(5 + p.level * 6 + Math.pow(p.level, 1.5));
+    p.xpNext = Math.round((5 + p.level * 6 + Math.pow(p.level, 1.5)) * XP_FACTOR);
     p.pendingLevels++;
   }
 }
@@ -697,7 +715,7 @@ function update(dt) {
     game.banner = { text: '📈 La charge de travail augmente !', t: 3 };
   }
   game.spawnTimer -= dt;
-  const interval = SPAWN_BASE_INTERVAL / SPAWN_GROWTH ** stage;
+  const interval = SPAWN_BASE_INTERVAL / SPAWN_GROWTH ** stage / legendMult();
   while (game.spawnTimer <= 0) {
     game.spawnTimer += interval;
     spawnEnemy();
@@ -709,6 +727,16 @@ function update(dt) {
     spawnEnemy('director', 'boss');
     game.banner = { text: '⚠ Un directeur arrive !', t: 3 };
   }
+  // Une arme au niveau max attend sa version légendaire : un directeur débarque vite
+  // (sauf s'il y en a déjà un en vie ou un coffre à ramasser)
+  const waitingLegend = legendCount() < MAX_LEGENDARY && game.weapons.some(w => !w.legendary && w.level >= WEAPONS[w.id].maxLevel);
+  if (waitingLegend && !game.enemies.some(e => e.boss) && !game.pickups.some(pk => pk.kind === 'chest')) {
+    if ((game.legendBossT -= dt) <= 0) {
+      game.legendBossT = LEGEND_BOSS_DELAY;
+      spawnEnemy('director', 'boss');
+      game.banner = { text: '⚠ Un directeur veut voir ton arme de plus près !', t: 3 };
+    }
+  } else game.legendBossT = LEGEND_BOSS_DELAY;
 
   // Matérialise les plantes autour du joueur
   forPropsNear(p.x, p.y, pr => {
@@ -761,8 +789,11 @@ function update(dt) {
 
   // Armes
   for (const w of game.weapons) {
-    const def = WEAPONS[w.id];
+    const def = WEAPONS[w.id], np = game.projectiles.length, ne = game.effects.length;
     def.update(w, dt, def.stats(w.level));
+    // Ce que l'arme vient de créer prend son niveau (pour l'effet visuel)
+    for (let i = np; i < game.projectiles.length; i++) game.projectiles[i].lvl = visualLevel(w);
+    for (let i = ne; i < game.effects.length; i++) game.effects[i].lvl = visualLevel(w);
   }
 
   // Projectiles
@@ -779,10 +810,27 @@ function update(dt) {
         if (pr.stun && !e.prop) e.stun = Math.max(e.stun || 0, e.boss ? pr.stun * 0.3 : pr.stun);
         if (pr.slow && !e.prop) e.slow = Math.max(e.slow || 0, e.boss ? pr.slow * 0.3 : pr.slow);
         hitEnemy(e, pr.dmg, pr.vx / pr.speed * 100, pr.vy / pr.speed * 100);
+        if (pr.bounces > 0) { // shuriken : rebondit vers l'ennemi suivant
+          const next = nearestEnemy(pr.x, pr.y, 350, pr.hit);
+          if (next) {
+            const a = Math.atan2(next.y - pr.y, next.x - pr.x);
+            pr.vx = Math.cos(a) * pr.speed;
+            pr.vy = Math.sin(a) * pr.speed;
+            pr.bounces--;
+            pr.life = Math.max(pr.life, 0.8);
+            return;
+          }
+        }
         if (--pr.pierce <= 0) pr.dead = true;
       }
     });
-    if (pr.dead && pr.onEnd) pr.onEnd(pr);
+    if (pr.dead && pr.onEnd) {
+      const n = game.projectiles.length;
+      pr.onEnd(pr);
+      for (let i = n; i < game.projectiles.length; i++) game.projectiles[i].lvl = pr.lvl; // éclats de la base de données
+    }
+    if (pr.lvl >= LEVEL_MAX_SPARKLE && !pr.dead && Math.random() < 0.25) // niveau max : traînée d'étincelles
+      game.particles.push({ x: pr.x, y: pr.y, vx: (Math.random() - 0.5) * 30, vy: -20, t: 0, life: 0.35, color: LEVEL_COLORS[pr.lvl] });
   }
 
   // Gemmes d'XP
@@ -892,7 +940,7 @@ function pickChoice(i) {
   const p = game.player;
   if (c.kind === 'weapon') {
     const w = game.weapons.find(w => w.id === c.id);
-    if (w) w.level++; else addWeapon(c.id);
+    if (w) { w.level++; weaponLevelFx(w); } else addWeapon(c.id);
   } else if (c.kind === 'passive') {
     game.passives[c.id] = c.level;
     PASSIVES[c.id].apply(p);
@@ -905,22 +953,45 @@ function pickChoice(i) {
   if (p.pendingLevels > 0) openLevelUp();
 }
 
-// ---- Coffre du directeur : monte une arme déjà possédée ----
+// Une arme qui monte de niveau : onde de choc + "Niv. X !" dans la couleur de son nouveau niveau
+function weaponLevelFx(w) {
+  const p = game.player, lv = visualLevel(w), color = LEVEL_COLORS[lv] || '#fff';
+  game.effects.push({ type: 'levelup', color, t: 0, life: w.legendary ? 1.2 : 0.8 });
+  game.texts.push({ x: p.x, y: p.y - 34, text: `${WEAPONS[w.id].icon} ${w.legendary ? 'LÉGENDAIRE' : 'Niv. ' + w.level} !`, t: 0, life: 1.6, color });
+  for (let i = 0; i < 16 + lv * (w.legendary ? 6 : 2); i++) {
+    const a = Math.random() * Math.PI * 2, s = 80 + Math.random() * 80;
+    game.particles.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: 0.6, color });
+  }
+}
+
+// ---- Coffre du directeur : rend légendaire une arme au max (prioritaire), sinon monte une arme ----
 function openChest() {
   const p = game.player;
+  const maxed = legendCount() >= MAX_LEGENDARY ? [] : game.weapons.filter(w => w.level >= WEAPONS[w.id].maxLevel && !w.legendary);
   const upgradable = game.weapons.filter(w => w.level < WEAPONS[w.id].maxLevel);
-  let html;
-  if (upgradable.length) {
+  let html, sub = 'Une de tes armes monte de niveau';
+  if (maxed.length) {
+    const w = maxed[Math.random() * maxed.length | 0];
+    w.legendary = true;
+    weaponLevelFx(w);
+    const d = WEAPONS[w.id];
+    sub = 'Une de tes armes devient légendaire !';
+    game.banner = { text: '🔥 Arme légendaire : les collègues redoublent d\'efforts !', t: 3.5 }; // s'affiche à la reprise
+    html = `<div class="reward legendary"><span class="icon">${d.icon}</span>
+      <div><b>${d.name} ★</b><em>LÉGENDAIRE</em><p>${d.legend}</p></div></div>`;
+  } else if (upgradable.length) {
     const w = upgradable[Math.random() * upgradable.length | 0];
     w.level++;
+    weaponLevelFx(w);
     const d = WEAPONS[w.id];
     html = `<div class="reward"><span class="icon">${d.icon}</span>
       <div><b>${d.name}</b><em>Niv. ${w.level}</em><p>${describeUpgrade(d, w.level)}</p></div></div>`;
   } else {
     p.hp = p.maxHp;
     html = `<div class="reward"><span class="icon">💰</span>
-      <div><b>Prime exceptionnelle</b><p>Toutes tes armes sont au max : PV entièrement restaurés</p></div></div>`;
+      <div><b>Prime exceptionnelle</b><p>Plus aucune arme à améliorer : PV entièrement restaurés</p></div></div>`;
   }
+  document.getElementById('chestSub').textContent = sub;
   document.getElementById('chestContent').innerHTML = html;
   game.state = 'chest';
   show('chest');
@@ -955,7 +1026,7 @@ function endGame(won) {
   }
   document.getElementById('endTitle').textContent = title;
   document.getElementById('stats').innerHTML = text + '<br>' +
-    `Niveau : <b>${game.player.level}</b><br>Collègues neutralisés : <b>${game.kills}</b><br>Directeurs vaincus : <b>${game.bossIndex - game.enemies.filter(e => e.boss).length}</b>`;
+    `Niveau : <b>${game.player.level}</b><br>Collègues neutralisés : <b>${game.kills}</b><br>Directeurs vaincus : <b>${game.bossKills}</b>`;
   show('gameover');
 }
 
@@ -1012,9 +1083,12 @@ function draw() {
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(220,170,110,0.5)';
-    ctx.lineWidth = 2;
+    const lv = visualLevel(w), col = LEVEL_COLORS[lv];
+    ctx.strokeStyle = col || 'rgba(220,170,110,0.5)';
+    ctx.globalAlpha = col ? 0.35 + Math.sin(game.time * 4) * 0.1 : 1;
+    ctx.lineWidth = 2 + lv * 0.4;
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // Flaques des couches (au sol, parfum de rose : flaque rose et fleurs qui s'envolent)
@@ -1027,6 +1101,12 @@ function draw() {
       ctx.beginPath();
       ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
+      const lv = visualLevel(w), col = LEVEL_COLORS[lv];
+      if (col) { // contour à la couleur du niveau de l'arme
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1 + lv * 0.4;
+        ctx.stroke();
+      }
       ctx.fillStyle = '#f07aa0';
       ctx.beginPath();
       ctx.ellipse(z.x - z.r * 0.2, z.y - z.r * 0.1, z.r * 0.5, z.r * 0.3, 0, 0, Math.PI * 2);
@@ -1046,6 +1126,36 @@ function draw() {
         ctx.fillStyle = '#ffd866';
         ctx.beginPath();
         ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Flammes des cocktails Molotov (apéro légendaire)
+  for (const w of game.weapons) {
+    if (w.id !== 'beer' || !w.fires) continue;
+    for (const z of w.fires) {
+      if (!inView(z.x, z.y, z.r + 40)) continue;
+      const fade = Math.min(1, z.t / 0.5);
+      ctx.globalAlpha = fade * 0.5;
+      ctx.fillStyle = '#c03a10';
+      ctx.beginPath();
+      ctx.ellipse(z.x, z.y, z.r, z.r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 7; i++) {
+        const fx = z.x + Math.cos(i * 2.4) * z.r * 0.65, fy = z.y + Math.sin(i * 2.4) * z.r * 0.35;
+        const fh = 12 + Math.sin(game.time * 12 + i * 1.7) * 5;
+        ctx.globalAlpha = fade * 0.9;
+        ctx.fillStyle = i % 2 ? '#ff7020' : '#ffb030';
+        ctx.beginPath();
+        ctx.moveTo(fx - 6, fy);
+        ctx.quadraticCurveTo(fx - 4, fy - fh * 0.6, fx, fy - fh);
+        ctx.quadraticCurveTo(fx + 4, fy - fh * 0.6, fx + 6, fy);
+        ctx.fill();
+        ctx.fillStyle = '#ffe060';
+        ctx.beginPath();
+        ctx.moveTo(fx - 3, fy);
+        ctx.quadraticCurveTo(fx, fy - fh * 0.5, fx + 3, fy);
         ctx.fill();
       }
     }
@@ -1134,11 +1244,22 @@ function draw() {
     const img = Textures[pr.sprite];
     ctx.save();
     ctx.translate(Math.round(pr.x), Math.round(pr.y));
+    // Plus l'arme est haut niveau, plus le projectile est gros et entouré d'une aura colorée
+    const lvl = pr.lvl || 1, k = (1 + (lvl - 1) * 0.05) * (pr.size || 1), col = LEVEL_COLORS[lvl];
+    if (col) {
+      ctx.globalAlpha = 0.2 + lvl * 0.03 + Math.sin(game.time * 10 + pr.x * 0.05) * 0.05;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(img.width, img.height) * 0.5 * k + 1 + lvl, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (pr.spin) ctx.rotate(game.time * 15); // shuriken
     if (!pr.noRotate) {
       ctx.rotate(Math.atan2(pr.vy, pr.vx));
       if (pr.vx < 0) ctx.scale(1, -1);
     }
-    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    ctx.drawImage(img, -img.width * k / 2, -img.height * k / 2, img.width * k, img.height * k);
     ctx.restore();
   }
 
@@ -1146,11 +1267,20 @@ function draw() {
   for (const w of game.weapons) {
     if (w.id !== 'postit' || !w.items) continue;
     const img = Textures.postit;
+    const lv = visualLevel(w), k = 1 + (lv - 1) * 0.05, col = LEVEL_COLORS[lv];
     for (const b of w.items) {
       ctx.save();
       ctx.translate(b.x, b.y);
+      if (col) {
+        ctx.globalAlpha = 0.25 + lv * 0.03;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(0, 0, img.width * 0.5 * k + 2 + lv, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       ctx.rotate(Math.sin(b.a * 2) * 0.3);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.drawImage(img, -img.width * k / 2, -img.height * k / 2, img.width * k, img.height * k);
       ctx.restore();
     }
   }
@@ -1159,7 +1289,21 @@ function draw() {
   for (const ef of game.effects) {
     const k = ef.t / ef.life;
     ctx.save();
-    if (ef.type === 'cable') {
+    const glow = LEVEL_COLORS[ef.lvl];
+    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 4 + ef.lvl * 2; } // halo selon le niveau de l'arme
+    if (ef.type === 'levelup') {
+      // Onde de choc autour du joueur quand une arme monte de niveau
+      ctx.globalAlpha = 1 - k;
+      ctx.strokeStyle = ef.color;
+      ctx.shadowColor = ef.color;
+      ctx.shadowBlur = 12;
+      for (let i = 0; i < 2; i++) {
+        ctx.lineWidth = 6 * (1 - k) + 1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 20 + (k + i * 0.25) * 70, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else if (ef.type === 'cable') {
       ctx.globalAlpha = 1 - k;
       ctx.beginPath();
       ctx.ellipse(ef.x, ef.y, ef.w / 2, ef.h / 2, 0, Math.PI, Math.PI * 2);
@@ -1416,10 +1560,12 @@ function drawSlotRow(items, slots, y, color) {
       ctx.setLineDash([]);
       continue;
     }
+    // Niveau max : "M" doré ; légendaire : "★" rouge
     const maxed = it.lvl >= it.max;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const badge = it.legendary ? '★' : maxed ? 'M' : it.lvl, accent = it.legendary ? LEVEL_COLORS[LEGENDARY_LEVEL] : '#ffd866';
+    ctx.fillStyle = it.legendary ? 'rgba(90,10,30,0.7)' : 'rgba(0,0,0,0.55)';
     ctx.fillRect(x, y, sw, sh);
-    ctx.strokeStyle = maxed ? '#ffd866' : color;
+    ctx.strokeStyle = maxed ? accent : color;
     ctx.strokeRect(x + 1, y + 1, sw - 2, sh - 2);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -1431,9 +1577,9 @@ function drawSlotRow(items, slots, y, color) {
     ctx.font = 'bold 11px monospace';
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#000';
-    ctx.strokeText(maxed ? 'M' : it.lvl, x + sw - 3, y + sh - 4);
-    ctx.fillStyle = maxed ? '#ffd866' : '#fff';
-    ctx.fillText(maxed ? 'M' : it.lvl, x + sw - 3, y + sh - 4);
+    ctx.strokeText(badge, x + sw - 3, y + sh - 4);
+    ctx.fillStyle = maxed ? accent : '#fff';
+    ctx.fillText(badge, x + sw - 3, y + sh - 4);
   }
 }
 
@@ -1563,7 +1709,7 @@ function drawHud() {
   // Inventaire : une case par emplacement, les cases vides restent visibles
   // Rien à afficher tant que le personnage n'est pas choisi
   const inGame = game.state !== 'title' && game.state !== 'start' && game.state !== 'levels';
-  const weaponSlots = !inGame ? [] : game.weapons.map(w => ({ icon: WEAPONS[w.id].icon, lvl: w.level, max: WEAPONS[w.id].maxLevel }));
+  const weaponSlots = !inGame ? [] : game.weapons.map(w => ({ icon: WEAPONS[w.id].icon, lvl: w.level, max: WEAPONS[w.id].maxLevel, legendary: w.legendary }));
   const passiveSlots = !inGame ? [] : Object.entries(game.passives).map(([id, lvl]) => ({ icon: PASSIVES[id].icon, lvl, max: PASSIVES[id].maxLevel }));
   drawSlotRow(weaponSlots, MAX_WEAPONS, 24, '#4aa3df');
   drawSlotRow(passiveSlots, MAX_PASSIVES, 54, '#8fd16a');
