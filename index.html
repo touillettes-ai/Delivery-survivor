@@ -67,6 +67,19 @@
     .press { color: #fff; font-weight: bold; animation: blink 1.2s infinite; }
     @keyframes blink { 50% { opacity: 0.3; } }
 
+    /* Écran de fin : dégâts par arme */
+    table.dmg { width: 100%; border-collapse: collapse; margin: 4px 0 16px; font-size: 13px; text-align: left; }
+    table.dmg th { color: #8fc4ea; font-weight: normal; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid #3a5068; }
+    table.dmg td { padding: 6px; border-bottom: 1px solid #2a3a4c; vertical-align: middle; }
+    table.dmg td.ico { font-size: 22px; width: 32px; text-align: center; }
+    table.dmg td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    table.dmg td.num small { display: block; color: #9ab; font-size: 11px; }
+    table.dmg em { color: #ffd866; font-style: normal; font-size: 12px; }
+    table.dmg tr.legendary em { color: #ff6a8a; font-weight: bold; }
+    table.dmg .bar { height: 5px; background: #2a3a4c; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+    table.dmg .bar span { display: block; height: 100%; background: #4aa3df; }
+    table.dmg tr.legendary .bar span { background: #ff3a6a; }
+
     #chest .panel { border-color: #f0c030; }
     .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
     .reward .icon { font-size: 40px; }
@@ -101,7 +114,7 @@
       <div id="chars"></div>
       <div id="charInfo"></div>
       <p class="help">Choix : <b>flèches + Entrée</b> ou clic · Déplacement : <b>ZQSD / WASD / flèches</b> (ou glisser au doigt/à la souris)<br>
-        Les armes tirent toutes seules · Ramasse les gemmes pour monter de niveau · <b>Échap</b> : pause<br>
+        Les armes tirent toutes seules · Ramasse les gemmes pour monter de niveau · <b>Espace</b> : super pouvoir · <b>Échap</b> : pause · <b>M</b> : son<br>
         Tu choisiras ensuite ton niveau</p>
     </div>
   </div>
@@ -122,7 +135,7 @@
   </div>
 
   <div id="pause" class="overlay hidden">
-    <div class="panel"><h1>Pause café</h1><p>Appuie sur Échap pour reprendre</p></div>
+    <div class="panel"><h1>Pause café</h1><p>Appuie sur Échap pour reprendre<br><span class="help"><b>M</b> : couper / remettre le son</span></p></div>
   </div>
 
   <div id="chest" class="overlay hidden">
@@ -137,11 +150,13 @@
     <div class="panel">
       <h1 id="endTitle">Burn-out !</h1>
       <p id="stats"></p>
+      <div id="dmgStats"></div>
       <button class="btn" id="restartBtn">Rejouer</button>
       <button class="btn secondary" id="changeBtn">Changer de personnage</button>
     </div>
   </div>
 
+  <script src="js/audio.js"></script>
   <script src="js/textures.js"></script>
   <script src="js/weapons.js"></script>
   <script src="js/characters.js"></script>

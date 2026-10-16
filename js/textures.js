@@ -769,8 +769,9 @@ const PROP_IMAGES = {
 };
 
 // Zone de collision au sol : w/h en pixels, top = position du haut de la zone dans le sprite
-// Les plantes sont cassables : elles ont aussi un flash quand on les frappe
+// Les plantes et les imprimantes sont cassables : elles ont aussi un flash quand on les frappe
 Sprites.plant = enemySet([PROP_IMAGES.plant]);
+Sprites.printer = enemySet([PROP_IMAGES.printer]);
 
 const PROPS = {
   island:  { img: PROP_IMAGES.island,  w: 128, h: 72, top: 16 },
@@ -784,6 +785,18 @@ const PROPS = {
 const Textures = {
   floor: makeFloor(),
   parquet: makeParquet(),
+  // Ticket à ramasser (bonus d'XP) : en-tête bleu, lignes de texte, pastille de priorité
+  ticket: pixelSprite([
+    'wwwwwwwwww',
+    'wBBBBBBBBw',
+    'wwwwwwwwww',
+    'wggggggwww',
+    'wwwwwwwwww',
+    'wggggwwwww',
+    'wwwwwwwrrw',
+    'wwwwwwwrrw',
+    'wwwwwwwwww',
+  ], { w: '#f4f6fa', B: '#2f6fd0', g: '#9aa0a8', r: '#e04040' }, 2),
   // Badge d'accès du niveau 2 : cordon, pince, carte avec photo
   badge: pixelSprite([
     '..rr....rr..',
@@ -892,3 +905,64 @@ const Textures = {
   ], { f: '#ff7020', y: '#ffe040', r: '#d8d0c0', g: '#2a7a3a', G: '#5ab06a' }, 2),
 };
 const AI_LOGOS = ['aiClaude', 'aiGpt', 'aiGemini', 'aiMistral'];
+
+// ---- Super pouvoirs ----
+// Sprite tiré d'un emoji (alarmes, dollars, rochers, graphiques…)
+function emojiSprite(ch, size) {
+  const S = size + 8;
+  return makeCanvas(S, S, g => {
+    g.font = `${size}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(ch, S / 2, S / 2 + 1);
+  });
+}
+
+// Ligne de code verte sur fond de terminal (prompt magique de Hakim)
+function codeSprite(text) {
+  return makeCanvas(text.length * 9 + 8, 18, (g, w, h) => {
+    g.fillStyle = 'rgba(10,20,10,0.85)';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#5aff7a';
+    g.font = 'bold 13px monospace';
+    g.textBaseline = 'middle';
+    g.fillText(text, 4, h / 2 + 1);
+  });
+}
+
+Object.assign(Textures, {
+  alarm: emojiSprite('🚨', 26),
+  dollar: emojiSprite('💵', 26),
+  request: emojiSprite('📋', 26),
+  rock: emojiSprite('🪨', 34),
+  chart1: emojiSprite('📊', 24),
+  chart2: emojiSprite('📈', 24),
+  code1: codeSprite('rm -rf collegues/'),
+  code2: codeSprite('{ IA: true }'),
+  code3: codeSprite('>_ kill --all'),
+});
+
+// Renforts de la visite en ACR : collier (cordon) rouge ou bleu avec un badge blanc
+const ALLY_ROWS = [
+  '...hhhhhh...',
+  '..hhhhhhhh..',
+  '..hssssssh..',
+  '..sesssess..',
+  '..ssssssss..',
+  '...ssmmss...',
+  '..cLccccLc..',
+  '.sccLccLccs.',
+  '..cccBBccc..',
+  '..pppppppp..',
+  '..pp....pp..',
+  '..pp....pp..',
+  '.kkk....kkk.',
+];
+const allyPal = (hair, shirt, collar) => ({ h: hair, s: '#e8b890', e: '#2a2a2a', m: '#a05050', c: shirt, L: collar, B: '#fafafa', p: '#2a2a3a', k: '#1a1a1a' });
+Sprites.allies = [
+  charSet(ALLY_ROWS, allyPal('#2a1a10', '#d8dce4', '#d03030')),
+  charSet(ALLY_ROWS, allyPal('#d8a040', '#3a6ab0', '#d03030')),
+  charSet(ALLY_ROWS, allyPal('#6a4020', '#3fa04a', '#d03030')),
+  charSet(ALLY_ROWS, allyPal('#1a1a1a', '#e0a020', '#d03030')),
+  charSet(ALLY_ROWS, allyPal('#888888', '#2a2a3a', '#2f6fd0')), // le collier bleu
+];

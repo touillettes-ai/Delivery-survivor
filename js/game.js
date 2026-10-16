@@ -92,6 +92,27 @@ const PI_TALK = [
   'Des questions ?',
 ];
 
+// ---- Événements aléatoires ----
+// dur : durée en secondes (événement en cours affiché en bas de l'écran), sinon effet immédiat
+const EVENTS = [
+  { id: 'incident', text: '🔥 Incident majeur ! Les collègues affluent', label: '🔥 Incident majeur', dur: 20 },
+  { id: 'bonus',    text: '🎯 Objectifs atteints : XP ×2 pendant 20 s', label: '🎯 XP ×2', dur: 20 },
+  { id: 'coffee',   text: '☕ Pause café ! Des croissants ont été livrés' },
+  { id: 'mail',     text: '📧 Mail de 18h : un collègue très énervé arrive !' },
+  { id: 'blackout', text: '🔌 Panne de courant : tout le monde est figé !' },
+];
+const FIRST_EVENT = 45;          // premier événement après 45 s
+const EVENT_EVERY = [50, 80];    // puis toutes les 50 à 80 s
+const INCIDENT_SPAWN_MULT = 2.5; // incident majeur : 2,5 fois plus d'ennemis
+
+// ---- Objets au sol ----
+const TICKET_EVERY = [15, 25];   // un ticket apparaît toutes les 15 à 25 s (3 max au sol)
+const TICKET_XP = 0.35;          // un ticket donne 35% de l'XP du niveau en cours
+const PRINTER_HP = 25;
+const PRINTER_BLAST_R = 110;     // rayon de l'explosion d'une imprimante
+const PRINTER_BLAST_DMG = 40;    // + 15 par palier de difficulté
+const PRINTER_TICKET_CHANCE = 0.5;
+
 // Plantes cassables
 const PLANT_HP = 12;
 const PLANT_BOLT_CHANCE = 0.35; // probabilité de lâcher un éclair
@@ -120,6 +141,7 @@ let selectedLevel = 'gtar';
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true;
+  if (e.key && e.key.toLowerCase() === 'm' && !e.repeat) Sfx.toggle(); // couper / remettre le son (e.key : touche M en AZERTY comme en QWERTY)
   if (game.state === 'title') {
     if (e.code === 'Enter' || e.code === 'Space') openCharSelect();
     return;
@@ -141,6 +163,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+  if (e.code === 'Space' && game.state === 'play') { e.preventDefault(); activateSpecial(); }
   const digit = /^(Digit|Numpad)[1-9]$/.test(e.code) ? +e.code.slice(-1) - 1 : -1;
   if (digit >= 0 && game.state === 'levelup') pickChoice(digit);
   if ((e.code === 'Enter' || e.code === 'Space') && game.state === 'chest') closeChest();
@@ -153,6 +176,11 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 const touch = { active: false, sx: 0, sy: 0, x: 0, y: 0 };
 const lastTap = { t: 0, x: 0, y: 0 };
 canvas.addEventListener('pointerdown', e => {
+  // Clic / tap sur le bouton du super pouvoir
+  if (game.state === 'play') {
+    const b = specialBtnPos();
+    if (Math.hypot(e.clientX - b.x, e.clientY - b.y) < SPECIAL_BTN_R + 8) { activateSpecial(); return; }
+  }
   // Double-clic / double tap sur le suiveur de Sheryna : il part en réunion
   const now = performance.now();
   if (now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
@@ -205,6 +233,8 @@ function newGame(charId, levelId = selectedLevel) {
     enemies: [], projectiles: [], gems: [], pickups: [], effects: [], particles: [], texts: [],
     weapons: [], passives: {}, choices: [],
     spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, bossKills: 0, legendBossT: LEGEND_BOSS_DELAY, banner: null,
+    eventT: FIRST_EVENT, event: null, ticketT: TICKET_EVERY[0], stats: {},
+    specialCd: 0, special: null, // super pouvoir prêt dès le début
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
   if (LEVELS[levelId].goal) createPiRoom();
@@ -353,7 +383,8 @@ function selectChar(id) {
 function renderCharInfo(id) {
   const c = CHARACTERS[id], w = WEAPONS[c.weapon], b = charBonus(c);
   document.getElementById('charInfo').innerHTML =
-    `<b>${c.name}</b> · ${c.role}<p>${c.desc}</p><small>Arme : ${w.icon} <b>${w.name}</b> — ${w.desc}<br>Bonus : ${b.icon} <b>${b.name}</b> — ${b.desc}</small>`;
+    `<b>${c.name}</b> · ${c.role}<p>${c.desc}</p><small>Arme : ${w.icon} <b>${w.name}</b> — ${w.desc}<br>Bonus : ${b.icon} <b>${b.name}</b> — ${b.desc}` +
+    (c.special ? `<br>Super pouvoir (Espace, toutes les 1 min 30) : ${c.special.icon} <b>${c.special.name}</b> — ${c.special.desc}` : '') + `</small>`;
 }
 
 function moveCharCursor(dx, dy) {
@@ -445,26 +476,395 @@ function forPropsNear(x, y, fn, range = 1) {
       for (const pr of chunkProps(cx + i, cy + j)) fn(pr);
 }
 
-// Une plante proche du joueur devient une cible fixe que les armes peuvent casser
-function spawnPlant(pr) {
+// Une plante ou une imprimante proche du joueur devient une cible fixe que les armes peuvent casser
+const BREAKABLE = {
+  plant:   { hp: PLANT_HP,   r: 12, color: '#3fa04a' },
+  printer: { hp: PRINTER_HP, r: 20, color: '#b8bcc4' },
+};
+
+function spawnBreakable(pr) {
+  const b = BREAKABLE[pr.type];
   const e = {
-    type: 'plant', prop: pr, x: pr.x, y: pr.drawY + pr.img.height / 2,
-    hp: PLANT_HP, maxHp: PLANT_HP, speed: 0, dmg: 0, r: 12, scale: 1, xp: 0, color: '#3fa04a',
+    type: pr.type, prop: pr, x: pr.x, y: pr.drawY + pr.img.height / 2,
+    hp: b.hp, maxHp: b.hp, speed: 0, dmg: 0, r: b.r, scale: 1, xp: 0, color: b.color,
     flash: 0, kx: 0, ky: 0, hitT: {}, phase: 0, dead: false,
   };
   pr.entity = e;
   game.enemies.push(e);
 }
 
-function breakPlant(e) {
+function breakProp(e) {
   const pr = e.prop;
   pr.broken = true;
   pr.entity = null;
+  if (pr.type === 'printer') { explodePrinter(e); return; }
   for (let i = 0; i < 12; i++) {
     const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 90;
     game.particles.push({ x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: 0.5, color: i % 3 ? '#3fa04a' : '#b0603a' });
   }
   if (Math.random() < PLANT_BOLT_CHANCE) game.pickups.push({ x: pr.x, y: pr.y, kind: 'bolt' });
+}
+
+// L'imprimante cassée explose et blesse tous les ennemis autour (et peut en faire exploser d'autres)
+function explodePrinter(e) {
+  Sfx.explosion();
+  game.shake = Math.max(game.shake, 8);
+  game.effects.push({ type: 'blast', x: e.x, y: e.y, r: PRINTER_BLAST_R, t: 0, life: 0.45 });
+  for (let i = 0; i < 24; i++) {
+    const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 160;
+    game.particles.push({ x: e.x, y: e.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: 0.6, color: ['#ff7020', '#ffd040', '#f4f4f4', '#555'][i % 4] });
+  }
+  const prev = dmgSource;
+  dmgSource = 'printer';
+  const dmg = PRINTER_BLAST_DMG + 15 * stageAt(game.time);
+  queryEnemies(e.x, e.y, PRINTER_BLAST_R + 40, o => {
+    if (o.dead || o === e) return;
+    const dx = o.x - e.x, dy = o.y - e.y, d = Math.hypot(dx, dy) || 1;
+    if (d < PRINTER_BLAST_R + o.r) hitEnemy(o, dmg, dx / d * 250, dy / d * 250);
+  });
+  dmgSource = prev;
+  if (Math.random() < PRINTER_TICKET_CHANCE) game.pickups.push({ x: e.x, y: e.y, kind: 'ticket' });
+}
+
+// Un ticket apparaît au sol pas trop loin du joueur, hors des meubles
+function spawnTicket() {
+  const p = game.player;
+  for (let tries = 0; tries < 8; tries++) {
+    const a = Math.random() * Math.PI * 2, d = 200 + Math.random() * 200;
+    const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+    let blocked = false;
+    forPropsNear(x, y, pr => {
+      if (!pr.broken && Math.abs(x - pr.x) < pr.w / 2 + 16 && Math.abs(y - pr.y) < pr.h / 2 + 30) blocked = true;
+    });
+    if (game.walls) for (const wl of game.walls) if (x > wl.x - 16 && x < wl.x + wl.w + 16 && y > wl.y - 16 && y < wl.y + wl.h + 16) blocked = true;
+    if (!blocked) { game.pickups.push({ x, y, kind: 'ticket' }); return; }
+  }
+}
+
+// ---- Événements aléatoires ----
+const eventActive = id => game.event && game.event.id === id;
+
+function triggerEvent() {
+  const p = game.player;
+  const pool = EVENTS.filter(ev => !(ev.dur && game.event)); // un seul événement durable à la fois
+  const ev = pool[Math.random() * pool.length | 0];
+  game.banner = { text: ev.text, t: 3.5 };
+  Sfx.event();
+  if (ev.dur) game.event = { id: ev.id, label: ev.label, t: ev.dur };
+  if (ev.id === 'coffee') {
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2;
+      game.pickups.push({ x: p.x + Math.cos(a) * 130, y: p.y + Math.sin(a) * 130, kind: 'croissant' });
+    }
+  } else if (ev.id === 'mail') {
+    spawnEnemy(pickEnemyType(), 'elite');
+  } else if (ev.id === 'blackout') {
+    for (const e of game.enemies) if (!e.prop) e.stun = Math.max(e.stun || 0, e.boss ? 1 : 3);
+  }
+}
+
+// ---- Statistiques de dégâts par arme (écran de fin) ----
+let dmgSource = null; // qui inflige les dégâts en ce moment : id d'arme, 'printer' ou 'follower'
+function statOf(src) {
+  return game.stats[src] || (game.stats[src] = { dmg: 0, kills: 0 });
+}
+
+// ---- Super pouvoirs (touche Espace, voir special dans characters.js) ----
+const SPECIAL_COOLDOWN = 90;  // 1 min 30 entre deux super pouvoirs
+const SPECIAL_DURATION = 5;
+const SPECIAL_BIG_DMG = 150;  // élites et directeurs encaissent ces dégâts par coup ; les autres meurent sur le coup
+const SPECIAL_BTN_R = 30;     // bouton rond en bas à droite (cliquable / tactile)
+const specialBtnPos = () => ({ x: W - SPECIAL_BTN_R - 20, y: H - SPECIAL_BTN_R - 28 });
+
+function onScreenEnemies(margin = 20) {
+  const p = game.player;
+  return game.enemies.filter(e => !e.dead && !e.prop && Math.abs(e.x - p.x) < W / 2 + margin && Math.abs(e.y - p.y) < H / 2 + margin);
+}
+
+// Coup de super pouvoir : mort immédiate, sauf élites et directeurs (gros dégâts, au plus 3 fois par seconde)
+function specialHit(e) {
+  if (e.dead || e.prop) return;
+  const prev = dmgSource;
+  dmgSource = 'special';
+  if (e.boss || e.elite) {
+    if (game.time - (e.hitT.special || -9) >= 0.33) {
+      e.hitT.special = game.time;
+      hitEnemy(e, SPECIAL_BIG_DMG);
+    }
+  } else {
+    statOf('special').dmg += Math.max(0, e.hp);
+    killEnemy(e);
+  }
+  dmgSource = prev;
+}
+
+// Impact d'un objet tombé du ciel : élimine tout dans le rayon
+function specialImpact(x, y, r) {
+  queryEnemies(x, y, r + 40, e => {
+    if (!e.dead && !e.prop && Math.hypot(e.x - x, e.y - y) < r + e.r) specialHit(e);
+  });
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * Math.PI * 2, s = 40 + Math.random() * 100;
+    game.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: 0.35, color: i % 2 ? '#ffd866' : '#fff' });
+  }
+  Sfx.impact();
+}
+
+function activateSpecial() {
+  const p = game.player, sp = CHARACTERS[p.charId].special;
+  if (!sp || game.state !== 'play' || game.special || game.specialCd > 0) return;
+  const s = game.special = { ...sp, t: SPECIAL_DURATION, tick: 0, items: [], waves: [], allies: [], trains: [], nextTrain: 0.5, nextWave: 0 };
+  game.specialCd = SPECIAL_COOLDOWN;
+  game.banner = { text: `${sp.icon} ${sp.name} !`, t: 2.5 };
+  Sfx.special();
+  if (s.type === 'squad') {
+    // Les renforts arrivent depuis les bords de l'écran
+    Sprites.allies.forEach((spr, i) => {
+      const a = i * Math.PI * 2 / Sprites.allies.length + Math.random() * 0.5, d = Math.hypot(W, H) / 2 + 20;
+      s.allies.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, r: 12, spr, dirX: 1 });
+    });
+  } else if (s.type === 'train') {
+    Sfx.whistle();
+    game.playerBubble = { text: '🎵 TUUUUT !', t: 1.5 };
+    for (const e of game.enemies) if (!e.prop) e.stun = Math.max(e.stun || 0, e.boss ? 2 : SPECIAL_DURATION);
+  } else if (s.type === 'laugh') {
+    game.playerBubble = { text: s.lines[Math.random() * s.lines.length | 0], t: 3 };
+  } else if (s.type === 'shout') {
+    Sfx.shout();
+    game.playerBubble = { text: 'NOOOOON !!!', t: 2.5 };
+  } else if (s.type === 'giant' && game.follower) {
+    const f = game.follower;
+    if (f.mode !== 'follow') { f.mode = 'follow'; f.x = p.x - 30; f.y = p.y; } // revient de réunion en urgence
+    f.target = null;
+    f.giant = true;
+    f.text = "J'arrive Sheryna !";
+    f.bubble = 2;
+  }
+}
+
+function updateSpecial(dt) {
+  const s = game.special, p = game.player;
+  s.t -= dt;
+  const active = s.t > 0, elapsed = SPECIAL_DURATION - s.t;
+  if (active) p.invuln = Math.max(p.invuln, 0.1); // intouchable pendant le super pouvoir
+  const prev = dmgSource;
+  dmgSource = 'special';
+  const pickTarget = () => { const l = onScreenEnemies(); return l.length ? l[Math.random() * l.length | 0] : null; };
+  const nearestOnScreen = (x, y) => {
+    let best = null, bd = Infinity;
+    for (const e of onScreenEnemies()) { const d = (e.x - x) ** 2 + (e.y - y) ** 2; if (d < bd) { bd = d; best = e; } }
+    return best;
+  };
+  // Se déplace vers une cible et l'élimine au contact ; renvoie true si la cible est atteinte
+  const chase = (o, t, speed, reach) => {
+    const dx = t.x - o.x, dy = t.y - o.y, d = Math.hypot(dx, dy) || 1;
+    if (Math.abs(dx) > 2) o.dirX = Math.sign(dx);
+    if (d <= reach + t.r) { specialHit(t); return true; }
+    const step = Math.min(d, speed * dt);
+    o.x += dx / d * step;
+    o.y += dy / d * step;
+    return false;
+  };
+
+  if (s.type === 'rain') {
+    // Pluie d'objets qui tombent sur les ennemis à l'écran
+    if (active && (s.tick -= dt) <= 0) {
+      s.tick = 0.06;
+      const t = pickTarget();
+      const x = t ? t.x : p.x + (Math.random() - 0.5) * W, y = t ? t.y : p.y + (Math.random() - 0.5) * H;
+      s.items.push({ x: x + (Math.random() - 0.5) * 20, y, t: 0, dur: 0.45, rot: Math.random() * 6 });
+    }
+    for (const it of s.items) if ((it.t += dt) >= it.dur) { it.dead = true; specialImpact(it.x, it.y, 45); }
+    s.items = s.items.filter(it => !it.dead);
+  } else if (s.type === 'dash' && active) {
+    // Fonce d'un ennemi à l'autre (les commandes sont ignorées pendant ce temps)
+    const t = nearestOnScreen(p.x, p.y);
+    if (t) {
+      p.moving = true;
+      chase(p, t, 750, p.r + 6);
+      pushOutOfProps(p);
+      if (Math.random() < 0.5) game.particles.push({ x: p.x, y: p.y + 10, vx: 0, vy: 0, t: 0, life: 0.3, color: '#ffd866' });
+    }
+  } else if (s.type === 'giant' && game.follower) {
+    const f = game.follower;
+    if (active) {
+      const t = nearestOnScreen(f.x, f.y);
+      f.moving = !!t;
+      if (t) chase(f, t, 650, 30);
+      // Écrase aussi tout ce qui est sous ses pieds
+      queryEnemies(f.x, f.y, 80, e => { if (Math.hypot(e.x - f.x, e.y - f.y) < 40 + e.r) specialHit(e); });
+    } else if (f.giant) {
+      f.giant = false;
+      f.text = 'Pas de quoi Sheryna !';
+      f.bubble = 2.5;
+    }
+  } else if (s.type === 'squad') {
+    for (const a of s.allies) {
+      const t = active && nearestOnScreen(a.x, a.y);
+      a.moving = !!t;
+      if (t) chase(a, t, 420, a.r + 4);
+    }
+    if (!active) s.allies = [];
+  } else if (s.type === 'barrage') {
+    // Une salve continue de projectiles, chacun vers un ennemi à l'écran
+    if (active && (s.tick -= dt) <= 0) {
+      s.tick = 0.07;
+      const t = pickTarget();
+      if (t) spawnProjectile({
+        x: p.x, y: p.y - 10, angle: Math.atan2(t.y - p.y, t.x - p.x), speed: 520, dmg: 0, pierce: 1, r: 12, life: 1.6,
+        homing: 8, sprite: s.sprites[Math.random() * s.sprites.length | 0], noRotate: true, special: true, src: 'special',
+      });
+    }
+  } else if (s.type === 'train') {
+    // 3 passages d'un énorme train, sur des voies proches du joueur
+    if (active && elapsed >= s.nextTrain) {
+      s.nextTrain += 1.5;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      s.trains.push({ x: p.x - dir * (W / 2 + 200), y: p.y + (Math.random() - 0.5) * H * 0.6, dir, end: p.x + dir * (W / 2 + 200) });
+      Sfx.whistle();
+    }
+    for (const tr of s.trains) {
+      tr.x += tr.dir * W * 0.9 * dt;
+      game.shake = Math.max(game.shake, 3);
+      queryEnemies(tr.x, tr.y, 160, e => { if (Math.abs(e.y - tr.y) < 55 + e.r && Math.abs(e.x - tr.x) < 140) specialHit(e); });
+      if ((tr.x - tr.end) * tr.dir > 0) tr.dead = true;
+    }
+    s.trains = s.trains.filter(tr => !tr.dead);
+  } else if (s.type === 'laugh') {
+    // Tout le monde rit (figé), puis meurt de rire petit à petit
+    if (active) {
+      for (const e of onScreenEnemies()) e.stun = Math.max(e.stun || 0, 0.3);
+      if ((s.tick -= dt) <= 0) {
+        s.tick = 0.1;
+        for (let i = 0; i < 4; i++) {
+          const t = pickTarget();
+          if (!t) break;
+          if (game.texts.length < 150) game.texts.push({ x: t.x, y: t.y - t.r - 6, text: 'HA HA', t: 0, life: 0.8, color: '#ff8ac0' });
+          specialHit(t);
+        }
+      }
+    }
+  } else if (s.type === 'shout') {
+    // Ondes de choc qui partent du joueur et balaient tout l'écran
+    if (active && elapsed >= s.nextWave) {
+      s.nextWave += 1.2;
+      s.waves.push({ r: 0, hit: new Set() });
+    }
+    const maxR = Math.hypot(W, H) / 2 + 60;
+    for (const wv of s.waves) {
+      wv.r += 900 * dt;
+      queryEnemies(p.x, p.y, wv.r + 40, e => {
+        if (!wv.hit.has(e) && Math.hypot(e.x - p.x, e.y - p.y) < wv.r) { wv.hit.add(e); specialHit(e); }
+      });
+      if (wv.r > maxR) wv.dead = true;
+    }
+    s.waves = s.waves.filter(wv => !wv.dead);
+  }
+
+  dmgSource = prev;
+  if (!active && !s.items.length && !s.trains.length && !s.waves.length) {
+    if (game.follower) game.follower.giant = false;
+    game.special = null;
+  }
+}
+
+// Effets des super pouvoirs dessinés dans le monde (au-dessus des personnages)
+function drawSpecialWorld() {
+  const s = game.special, p = game.player;
+  if (!s) return;
+  if (s.type === 'rain') {
+    const img = Textures[s.sprite];
+    for (const it of s.items) {
+      const k = it.t / it.dur;
+      ctx.fillStyle = `rgba(0,0,0,${0.15 + k * 0.25})`; // ombre qui grossit à l'approche
+      ctx.beginPath();
+      ctx.ellipse(it.x, it.y, 6 + k * 14, 3 + k * 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(it.x, it.y - (1 - k) * 320);
+      ctx.rotate(it.rot + k * 3);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+    }
+  } else if (s.type === 'squad') {
+    for (const a of s.allies) {
+      const img = a.dirX < 0 ? a.spr.left : a.spr.right;
+      const bob = a.moving ? -Math.abs(Math.sin(game.time * 14 + a.x)) * 3 : 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(a.x, a.y + img.height / 2 - 2, 12, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.drawImage(img, Math.round(a.x - img.width / 2), Math.round(a.y - img.height / 2 + bob));
+    }
+  } else if (s.type === 'train') {
+    const img = Textures.train, k = 5;
+    for (const tr of s.trains) {
+      ctx.save();
+      ctx.translate(Math.round(tr.x), Math.round(tr.y));
+      if (tr.dir < 0) ctx.scale(-1, 1);
+      ctx.drawImage(img, -img.width * k / 2, -img.height * k / 2, img.width * k, img.height * k);
+      ctx.restore();
+    }
+  } else if (s.type === 'shout') {
+    for (const wv of s.waves) {
+      ctx.globalAlpha = Math.max(0, 1 - wv.r / (Math.hypot(W, H) / 2 + 60));
+      ctx.strokeStyle = '#ff5050';
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, wv.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  } else if (s.type === 'barrage' && s.laptop && s.t > 0) {
+    // Le PC portable de Hakim, ouvert devant lui
+    const x = p.x - 16, y = p.y + 6;
+    ctx.fillStyle = '#2a2e36';
+    ctx.fillRect(x, y - 16, 32, 18);
+    ctx.fillStyle = '#0a1a10';
+    ctx.fillRect(x + 2, y - 14, 28, 14);
+    ctx.fillStyle = '#5aff7a';
+    for (let i = 0; i < 3; i++) ctx.fillRect(x + 4, y - 12 + i * 4, 4 + ((game.time * 20 + i * 7) % 20), 2);
+    ctx.fillStyle = '#c8ccd4';
+    ctx.fillRect(x - 3, y + 2, 38, 4);
+  }
+}
+
+// Bouton du super pouvoir (bas droite) : se remplit pendant la recharge, pulse quand il est prêt
+function drawSpecialButton() {
+  const sp = CHARACTERS[game.player.charId].special;
+  if (!sp) return;
+  const { x, y } = specialBtnPos(), R = SPECIAL_BTN_R, ready = game.specialCd <= 0 && !game.special;
+  if (ready) {
+    ctx.fillStyle = `rgba(150,205,50,${0.35 + Math.sin(game.time * 6) * 0.15})`;
+    ctx.beginPath();
+    ctx.arc(x, y, R + 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(10,16,24,0.8)';
+  ctx.beginPath();
+  ctx.arc(x, y, R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = '26px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = ready || game.special ? 1 : 0.45;
+  ctx.fillText(sp.icon, x, y + 1);
+  ctx.globalAlpha = 1;
+  // Anneau : durée restante (actif) ou recharge
+  const frac = game.special ? Math.max(0, game.special.t) / SPECIAL_DURATION : 1 - Math.max(0, game.specialCd) / SPECIAL_COOLDOWN;
+  ctx.strokeStyle = game.special ? '#ff9a30' : ready ? '#96cd32' : '#4aa3df';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(x, y, R - 2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+  ctx.stroke();
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = 'bold 11px monospace';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#000';
+  const label = ready ? 'ESPACE' : Math.ceil(game.special ? Math.max(0, game.special.t) : game.specialCd) + ' s';
+  ctx.strokeText(label, x, y + R + 14);
+  ctx.fillStyle = ready ? '#96cd32' : '#fff';
+  ctx.fillText(label, x, y + R + 14);
 }
 
 // Repousse un cercle hors des meubles et des murs (glisse le long des bords)
@@ -520,6 +920,7 @@ function spawnEnemy(type = pickEnemyType(), rank = 'normal') {
 function hitEnemy(e, dmg, kx = 0, ky = 0) {
   if (e.dead) return;
   dmg = Math.round(dmg * game.player.might * (0.9 + Math.random() * 0.2));
+  if (dmgSource && !e.prop) statOf(dmgSource).dmg += Math.min(dmg, Math.max(0, e.hp)); // dégâts réellement utiles
   e.hp -= dmg;
   e.flash = 0.1;
   const kb = e.prop ? 0 : e.boss ? 0.05 : e.elite ? 0.2 : 1;
@@ -531,12 +932,15 @@ function hitEnemy(e, dmg, kx = 0, ky = 0) {
 
 function killEnemy(e) {
   e.dead = true;
-  if (e.prop) { breakPlant(e); return; }
+  if (e.prop) { breakProp(e); return; }
   game.kills++;
+  if (dmgSource) statOf(dmgSource).kills++;
+  Sfx.kill();
   game.gems.push({ x: e.x, y: e.y, value: e.xp, magnet: false, speed: 0 });
   if (e.elite || Math.random() < 0.004) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'croissant' });
   if (e.boss) {
     game.bossKills++;
+    Sfx.chest();
     game.pickups.push({ x: e.x, y: e.y, kind: 'chest' });
     game.banner = { text: `${e.name} vaincu ! Récupère son coffre`, t: 3 };
     game.shake = 12;
@@ -569,16 +973,18 @@ function damagePlayer(dmg) {
   const p = game.player;
   p.hp -= Math.max(1, dmg - p.armor);
   p.invuln = 0.5;
+  Sfx.hurt();
   game.shake = 6;
   if (p.hp <= 0) { p.hp = 0; gameOver(); }
 }
 
 function gainXp(v) {
   const p = game.player;
-  p.xp += v * p.xpMult;
+  p.xp += v * p.xpMult * (eventActive('bonus') ? 2 : 1);
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
+    Sfx.levelUp();
     p.xpNext = Math.round((5 + p.level * 6 + Math.pow(p.level, 1.5)) * XP_FACTOR);
     p.pendingLevels++;
   }
@@ -599,6 +1005,7 @@ function update(dt) {
     if (!game.hasBadge) {
       if (Math.hypot(p.x - g.badgeX, p.y - g.badgeY) < p.r + 22) {
         game.hasBadge = true;
+        Sfx.chest();
         game.walls = game.walls.filter(wl => !wl.door); // la porte s'ouvre
         game.banner = { text: '🪪 Badge récupéré ! Direction la salle PI', t: 3.5 };
         for (let i = 0; i < 20; i++) {
@@ -614,7 +1021,8 @@ function update(dt) {
   if (game.banner && (game.banner.t -= dt) <= 0) game.banner = null;
 
   // Déplacement
-  const d = inputDir();
+  const dashing = game.special && game.special.type === 'dash' && game.special.t > 0 && onScreenEnemies().length > 0;
+  const d = dashing ? { x: 0, y: 0 } : inputDir(); // pendant l'enchaînement de réu, le personnage fonce tout seul
   p.moving = !!(d.x || d.y);
   if (p.moving) {
     const l = Math.hypot(d.x, d.y);
@@ -633,7 +1041,9 @@ function update(dt) {
   // Double-clic dessus : il part en réunion (s'éloigne, disparaît FOLLOWER_MEETING s, puis revient)
   const f = game.follower;
   if (game.playerBubble && (game.playerBubble.t -= dt) <= 0) game.playerBubble = null;
-  if (f && f.mode === 'leaving') {
+  if (f && f.giant) {
+    f.bubble -= dt; // géant : piloté par le super pouvoir de Sheryna
+  } else if (f && f.mode === 'leaving') {
     f.x += f.leaveX * 170 * dt;
     f.y += f.leaveY * 170 * dt;
     f.moving = true;
@@ -674,7 +1084,10 @@ function update(dt) {
       f.moving = true;
       if (Math.abs(tx) > 2) f.dirX = Math.sign(tx);
       if (td <= f.r + tg.r + 4) {
+        dmgSource = 'follower';
+        statOf('follower').dmg += Math.max(0, tg.hp);
         killEnemy(tg);
+        dmgSource = null;
         game.texts.push({ x: tg.x, y: tg.y - tg.r, text: '💥', t: 0, life: 0.8 });
         game.shake = Math.max(game.shake, 4);
         f.target = null;
@@ -706,6 +1119,12 @@ function update(dt) {
       f.text = text;
     }
   }
+  // Super pouvoir : recharge, puis effet en cours
+  if (game.specialCd > 0 && (game.specialCd -= dt) <= 0) {
+    Sfx.specialReady();
+    game.banner = { text: `⚡ ${CHARACTERS[p.charId].special.name} est prêt ! (Espace)`, t: 2.5 };
+  }
+  if (game.special) updateSpecial(dt);
   game.shake = Math.max(0, game.shake - 30 * dt);
 
   // Apparition des ennemis
@@ -715,7 +1134,7 @@ function update(dt) {
     game.banner = { text: '📈 La charge de travail augmente !', t: 3 };
   }
   game.spawnTimer -= dt;
-  const interval = SPAWN_BASE_INTERVAL / SPAWN_GROWTH ** stage / legendMult();
+  const interval = SPAWN_BASE_INTERVAL / SPAWN_GROWTH ** stage / legendMult() / (eventActive('incident') ? INCIDENT_SPAWN_MULT : 1);
   while (game.spawnTimer <= 0) {
     game.spawnTimer += interval;
     spawnEnemy();
@@ -725,7 +1144,18 @@ function update(dt) {
   if (game.bossIndex < BOSS_TIMES.length && game.time >= BOSS_TIMES[game.bossIndex]) {
     game.bossIndex++;
     spawnEnemy('director', 'boss');
+    Sfx.boss();
     game.banner = { text: '⚠ Un directeur arrive !', t: 3 };
+  }
+  // Événements aléatoires et tickets au sol
+  if (game.event && (game.event.t -= dt) <= 0) game.event = null;
+  if ((game.eventT -= dt) <= 0) {
+    game.eventT = EVENT_EVERY[0] + Math.random() * (EVENT_EVERY[1] - EVENT_EVERY[0]);
+    triggerEvent();
+  }
+  if ((game.ticketT -= dt) <= 0) {
+    game.ticketT = TICKET_EVERY[0] + Math.random() * (TICKET_EVERY[1] - TICKET_EVERY[0]);
+    if (game.pickups.filter(pk => pk.kind === 'ticket').length < 3) spawnTicket();
   }
   // Une arme au niveau max attend sa version légendaire : un directeur débarque vite
   // (sauf s'il y en a déjà un en vie ou un coffre à ramasser)
@@ -734,13 +1164,14 @@ function update(dt) {
     if ((game.legendBossT -= dt) <= 0) {
       game.legendBossT = LEGEND_BOSS_DELAY;
       spawnEnemy('director', 'boss');
+      Sfx.boss();
       game.banner = { text: '⚠ Un directeur veut voir ton arme de plus près !', t: 3 };
     }
   } else game.legendBossT = LEGEND_BOSS_DELAY;
 
   // Matérialise les plantes autour du joueur
   forPropsNear(p.x, p.y, pr => {
-    if (pr.type === 'plant' && !pr.broken && !pr.entity) spawnPlant(pr);
+    if (BREAKABLE[pr.type] && !pr.broken && !pr.entity) spawnBreakable(pr);
   }, 2);
 
   buildGrid();
@@ -790,14 +1221,17 @@ function update(dt) {
   // Armes
   for (const w of game.weapons) {
     const def = WEAPONS[w.id], np = game.projectiles.length, ne = game.effects.length;
+    dmgSource = w.id;
     def.update(w, dt, def.stats(w.level));
-    // Ce que l'arme vient de créer prend son niveau (pour l'effet visuel)
-    for (let i = np; i < game.projectiles.length; i++) game.projectiles[i].lvl = visualLevel(w);
+    // Ce que l'arme vient de créer prend son niveau (effet visuel) et son nom (statistiques)
+    for (let i = np; i < game.projectiles.length; i++) Object.assign(game.projectiles[i], { lvl: visualLevel(w), src: w.id });
     for (let i = ne; i < game.effects.length; i++) game.effects[i].lvl = visualLevel(w);
   }
+  dmgSource = null;
 
   // Projectiles
   for (const pr of game.projectiles) {
+    dmgSource = pr.src || null;
     if (pr.homing) steerProjectile(pr, dt);
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
@@ -807,6 +1241,11 @@ function update(dt) {
       if (pr.dead || e.dead || pr.hit.has(e)) return;
       if ((e.x - pr.x) ** 2 + (e.y - pr.y) ** 2 < (e.r + pr.r) ** 2) {
         pr.hit.add(e);
+        if (pr.special) { // projectile de super pouvoir
+          specialHit(e);
+          if (--pr.pierce <= 0) pr.dead = true;
+          return;
+        }
         if (pr.stun && !e.prop) e.stun = Math.max(e.stun || 0, e.boss ? pr.stun * 0.3 : pr.stun);
         if (pr.slow && !e.prop) e.slow = Math.max(e.slow || 0, e.boss ? pr.slow * 0.3 : pr.slow);
         hitEnemy(e, pr.dmg, pr.vx / pr.speed * 100, pr.vy / pr.speed * 100);
@@ -827,16 +1266,17 @@ function update(dt) {
     if (pr.dead && pr.onEnd) {
       const n = game.projectiles.length;
       pr.onEnd(pr);
-      for (let i = n; i < game.projectiles.length; i++) game.projectiles[i].lvl = pr.lvl; // éclats de la base de données
+      for (let i = n; i < game.projectiles.length; i++) Object.assign(game.projectiles[i], { lvl: pr.lvl, src: pr.src }); // éclats de la base de données
     }
     if (pr.lvl >= LEVEL_MAX_SPARKLE && !pr.dead && Math.random() < 0.25) // niveau max : traînée d'étincelles
       game.particles.push({ x: pr.x, y: pr.y, vx: (Math.random() - 0.5) * 30, vy: -20, t: 0, life: 0.35, color: LEVEL_COLORS[pr.lvl] });
   }
+  dmgSource = null;
 
   // Gemmes d'XP
   for (const g of game.gems) {
     const dx = p.x - g.x, dy = p.y - g.y, dist = Math.hypot(dx, dy);
-    if (dist < p.r + 8) { g.dead = true; gainXp(g.value); continue; }
+    if (dist < p.r + 8) { g.dead = true; gainXp(g.value); Sfx.gem(); continue; }
     if (!g.magnet && dist < p.magnet) g.magnet = true;
     if (g.magnet) {
       g.speed += 600 * dt;
@@ -856,7 +1296,13 @@ function update(dt) {
       pk.dead = true;
       if (pk.kind === 'chest') {
         openChest();
+      } else if (pk.kind === 'ticket') {
+        // Ticket résolu : bonus d'XP proportionnel au niveau en cours
+        Sfx.ticket();
+        gainXp(Math.max(1, Math.round(p.xpNext * TICKET_XP)) / p.xpMult);
+        game.texts.push({ x: p.x, y: p.y - 30, text: '🎫 Ticket résolu ! +XP', t: 0, life: 1.2, color: '#7fd8ff' });
       } else {
+        Sfx.heal();
         const heal = pk.kind === 'bolt' ? BOLT_HEAL : 30;
         p.hp = Math.min(p.maxHp, p.hp + heal);
         game.texts.push({ x: p.x, y: p.y - 30, text: '+' + heal, t: 0, life: 1, color: pk.kind === 'bolt' ? '#ffe040' : '#6f6' });
@@ -956,6 +1402,7 @@ function pickChoice(i) {
 // Une arme qui monte de niveau : onde de choc + "Niv. X !" dans la couleur de son nouveau niveau
 function weaponLevelFx(w) {
   const p = game.player, lv = visualLevel(w), color = LEVEL_COLORS[lv] || '#fff';
+  if (w.legendary) Sfx.legendary(); else Sfx.weaponUp();
   game.effects.push({ type: 'levelup', color, t: 0, life: w.legendary ? 1.2 : 0.8 });
   game.texts.push({ x: p.x, y: p.y - 34, text: `${WEAPONS[w.id].icon} ${w.legendary ? 'LÉGENDAIRE' : 'Niv. ' + w.level} !`, t: 0, life: 1.6, color });
   for (let i = 0; i < 16 + lv * (w.legendary ? 6 : 2); i++) {
@@ -1024,10 +1471,37 @@ function endGame(won) {
     title = won ? '18h00 : journée terminée !' : 'Burn-out !';
     text = won ? `${name} rentre enfin chez soi.` : `${name} a craqué à <b>${clock}</b>`;
   }
+  if (won) Sfx.win(); else Sfx.lose();
   document.getElementById('endTitle').textContent = title;
   document.getElementById('stats').innerHTML = text + '<br>' +
     `Niveau : <b>${game.player.level}</b><br>Collègues neutralisés : <b>${game.kills}</b><br>Directeurs vaincus : <b>${game.bossKills}</b>`;
+  document.getElementById('dmgStats').innerHTML = damageTable();
   show('gameover');
+}
+
+// Tableau des dégâts par source, de la plus efficace à la moins efficace
+const EXTRA_SOURCES = {
+  follower: { icon: '🧑‍💼', name: 'Collègue de Sheryna' },
+  printer:  { icon: '🖨️', name: 'Imprimantes explosives' },
+};
+function damageTable() {
+  const rows = game.weapons.map(w => ({
+    icon: WEAPONS[w.id].icon, name: WEAPONS[w.id].name,
+    tag: w.legendary ? '★' : 'Niv. ' + w.level, legendary: w.legendary, ...statOf(w.id),
+  }));
+  for (const [id, s] of Object.entries(EXTRA_SOURCES)) if (game.stats[id]) rows.push({ ...s, tag: '', ...game.stats[id] });
+  const sp = CHARACTERS[game.player.charId].special;
+  if (sp && game.stats.special) rows.push({ icon: sp.icon, name: sp.name, tag: 'Super pouvoir', ...game.stats.special });
+  rows.sort((a, b) => b.dmg - a.dmg);
+  const total = rows.reduce((sum, r) => sum + r.dmg, 0) || 1, top = rows.length ? rows[0].dmg || 1 : 1;
+  const fmt = n => Math.round(n).toLocaleString('fr-FR');
+  return `<table class="dmg"><thead><tr><th colspan="2">Arme</th><th>Dégâts</th><th>Éliminés</th></tr></thead><tbody>` +
+    rows.map(r => `<tr${r.legendary ? ' class="legendary"' : ''}>
+      <td class="ico">${r.icon}</td>
+      <td><b>${r.name}</b> <em>${r.tag}</em><div class="bar"><span style="width:${(r.dmg / top * 100).toFixed(1)}%"></span></div></td>
+      <td class="num">${fmt(r.dmg)}<small>${Math.round(r.dmg / total * 100)} %</small></td>
+      <td class="num">${fmt(r.kills)}</td></tr>`).join('') +
+    `</tbody></table>`;
 }
 
 function gameOver() { endGame(false); }
@@ -1170,11 +1644,12 @@ function draw() {
   }
   for (const pk of game.pickups) {
     const img = Textures[pk.kind];
-    if (pk.kind === 'chest' || pk.kind === 'bolt') {
+    if (pk.kind === 'chest' || pk.kind === 'bolt' || pk.kind === 'ticket') {
       const glow = (pk.kind === 'chest' ? 30 : 18) + Math.sin(game.time * 5) * 6;
       const gr = ctx.createRadialGradient(pk.x, pk.y, 0, pk.x, pk.y, glow);
-      gr.addColorStop(0, 'rgba(255,220,80,0.6)');
-      gr.addColorStop(1, 'rgba(255,220,80,0)');
+      const rgb = pk.kind === 'ticket' ? '127,216,255' : '255,220,80';
+      gr.addColorStop(0, `rgba(${rgb},0.6)`);
+      gr.addColorStop(1, `rgba(${rgb},0)`);
       ctx.fillStyle = gr;
       ctx.fillRect(pk.x - glow, pk.y - glow, glow * 2, glow * 2);
     }
@@ -1291,7 +1766,20 @@ function draw() {
     ctx.save();
     const glow = LEVEL_COLORS[ef.lvl];
     if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 4 + ef.lvl * 2; } // halo selon le niveau de l'arme
-    if (ef.type === 'levelup') {
+    if (ef.type === 'blast') {
+      // Explosion d'imprimante : boule de feu + onde de choc
+      ctx.globalAlpha = (1 - k) * 0.6;
+      ctx.fillStyle = k < 0.3 ? '#ffe060' : '#ff7020';
+      ctx.beginPath();
+      ctx.arc(ef.x, ef.y, ef.r * (0.4 + k * 0.6), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1 - k;
+      ctx.strokeStyle = '#fff4c0';
+      ctx.lineWidth = 4 * (1 - k) + 1;
+      ctx.beginPath();
+      ctx.arc(ef.x, ef.y, ef.r * (0.6 + k * 0.5), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (ef.type === 'levelup') {
       // Onde de choc autour du joueur quand une arme monte de niveau
       ctx.globalAlpha = 1 - k;
       ctx.strokeStyle = ef.color;
@@ -1362,6 +1850,8 @@ function draw() {
     ctx.restore();
   }
 
+  drawSpecialWorld();
+
   // Particules
   for (const pa of game.particles) {
     ctx.globalAlpha = 1 - pa.t / pa.life;
@@ -1372,7 +1862,7 @@ function draw() {
 
   // Bulle du suiveur, au-dessus de tout le reste
   const f = game.follower;
-  if (f && f.mode !== 'away' && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * FOLLOWER_SIZE / 2 - 4);
+  if (f && f.mode !== 'away' && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * followerScale(f) / 2 - 4);
   // Bulle de Sheryna
   if (game.playerBubble) drawBubble(game.playerBubble.text, p.x, p.y - Sprites[p.charId].right.height / 2 - 4);
   // Bulle de l'orateur qui parle sur la scène de la PI
@@ -1400,11 +1890,19 @@ function draw() {
 function drawPlayer(p) {
   const set = Sprites[p.charId];
   const img = p.dirX < 0 ? set.left : set.right;
-  const bob = p.moving ? -Math.abs(Math.sin(game.time * 12)) * 3 : 0;
+  // Népal attitude : le personnage lévite, entouré d'une aura
+  const levitate = game.special && game.special.levitate && game.special.t > 0;
+  const bob = levitate ? -14 + Math.sin(game.time * 3) * 4 : p.moving ? -Math.abs(Math.sin(game.time * 12)) * 3 : 0;
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + img.height / 2 - 2, 12, 4, 0, 0, Math.PI * 2);
   ctx.fill();
+  if (levitate) {
+    ctx.fillStyle = `rgba(255,220,120,${0.25 + Math.sin(game.time * 5) * 0.1})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + bob, 26, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2) ctx.globalAlpha = 0.4;
   ctx.drawImage(img, Math.round(p.x - img.width / 2), Math.round(p.y - img.height / 2 + bob));
   ctx.globalAlpha = 1;
@@ -1506,13 +2004,17 @@ function drawPiRoom(g) {
   ctx.textAlign = 'left';
 }
 
+// Taille d'affichage du suiveur : normale, ou géant (×3) pendant le super pouvoir de Sheryna
+const followerScale = f => FOLLOWER_SIZE * (f.giant ? 3 : 1);
+
 function drawFollower(f) {
   const img = f.dirX < 0 ? Sprites.follower.left : Sprites.follower.right;
-  const w = Math.round(img.width * FOLLOWER_SIZE), h = Math.round(img.height * FOLLOWER_SIZE);
+  const size = followerScale(f);
+  const w = Math.round(img.width * size), h = Math.round(img.height * size);
   const bob = f.moving ? -Math.abs(Math.sin(game.time * 12 + 1)) * 3 : 0;
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
-  ctx.ellipse(f.x, f.y + h / 2 - 2, 10, 3.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(f.x, f.y + h / 2 - 2, 10 * size / FOLLOWER_SIZE, 3.5 * size / FOLLOWER_SIZE, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = f.mode === 'leaving' ? Math.max(0, Math.min(1, f.awayT / 1.5)) : 1; // s'efface en partant
   ctx.drawImage(img, Math.round(f.x - w / 2), Math.round(f.y - h / 2 + bob), w, h);
@@ -1664,6 +2166,24 @@ function drawHud() {
     ctx.fillText(label, W / 2, ay + 34);
   }
 
+  // Événement en cours (en bas au milieu) et son coupé (en haut à droite)
+  if (game.event) {
+    const label = `${game.event.label} · ${Math.ceil(game.event.t)} s`;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#000';
+    ctx.strokeText(label, W / 2, H - 24);
+    ctx.fillStyle = game.event.id === 'incident' ? '#ff8a60' : '#ffd866';
+    ctx.fillText(label, W / 2, H - 24);
+  }
+  if (Sfx.muted) {
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('🔇', W - 12, 68);
+  }
+
   // Bandeau d'annonce
   if (game.banner) {
     ctx.globalAlpha = Math.min(1, game.banner.t);
@@ -1713,6 +2233,7 @@ function drawHud() {
   const passiveSlots = !inGame ? [] : Object.entries(game.passives).map(([id, lvl]) => ({ icon: PASSIVES[id].icon, lvl, max: PASSIVES[id].maxLevel }));
   drawSlotRow(weaponSlots, MAX_WEAPONS, 24, '#4aa3df');
   drawSlotRow(passiveSlots, MAX_PASSIVES, 54, '#8fd16a');
+  if (inGame) drawSpecialButton();
 
   // Joystick virtuel
   if (touch.active && game.state === 'play') {
