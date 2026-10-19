@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Survivor – Teaser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: radial-gradient(circle at 50% 30%, rgba(20, 35, 220, 0.35), rgba(5, 8, 30, 1) 70%) #05081e;
+      color: #eee; font-family: 'Segoe UI', 'Trebuchet MS', sans-serif;
+      display: flex; flex-direction: column; align-items: center; padding: 32px 16px 48px;
+    }
+    .logo { text-align: center; font-family: 'Press Start 2P', sans-serif; line-height: 1.2; margin-bottom: 8px; }
+    .logo .top { font-size: clamp(28px, 7vw, 56px); color: #4a6aff; text-shadow: 4px 4px 0 #000; }
+    .logo .bottom { font-size: clamp(22px, 5.5vw, 44px); color: #96cd32; text-shadow: 4px 4px 0 #000; letter-spacing: 4px; }
+    .tagline { color: #cfe0ff; margin: 8px 0 24px; text-align: center; }
+    .screen {
+      width: 100%; max-width: 960px; border-radius: 6px; overflow: hidden; background: #000;
+      box-shadow: 0 0 0 3px #0a1018, 0 0 0 6px #2a5a80, 0 20px 60px #000;
+    }
+    video { display: block; width: 100%; height: auto; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 28px; }
+    .btn {
+      font-family: 'Press Start 2P', sans-serif; font-size: 12px; text-decoration: none; color: #0a1018;
+      background: #96cd32; padding: 14px 20px; border-radius: 4px; box-shadow: 0 4px 0 #4a7010;
+    }
+    .btn:hover { background: #b0e050; }
+    .btn.secondary { background: #4aa3df; box-shadow: 0 4px 0 #1a4a70; }
+    .btn.secondary:hover { background: #8fc4ea; }
+    .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #1a4a70; }
+    .note { color: #9ab; font-size: 13px; margin-top: 18px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="logo"><div class="top">DELIVERY</div><div class="bottom">SURVIVOR</div></div>
+  <p class="tagline">Survis à ta journée en open space, de 9h00 à 18h00</p>
+
+  <div class="screen">
+    <video id="teaser" src="media/teaser.webm" poster="media/teaser-poster.png" controls playsinline preload="metadata"></video>
+  </div>
+
+  <div class="actions">
+    <a class="btn" href="index.html">▶ Jouer maintenant</a>
+    <a class="btn secondary" href="media/teaser.webm" download="Delivery-Survivor-teaser.webm">⬇ Télécharger la vidéo</a>
+  </div>
+  <p class="note">16 personnages · armes légendaires · super pouvoirs · 4 directeurs · 3 niveaux</p>
+
+  <script>
+    // Les vidéos enregistrées dans le navigateur n'indiquent pas leur durée :
+    // on la fait calculer une fois pour que la barre de progression fonctionne
+    const v = document.getElementById('teaser');
+    v.addEventListener('loadedmetadata', () => {
+      if (isFinite(v.duration)) return;
+      v.currentTime = 1e6;
+      v.addEventListener('timeupdate', function reset() {
+        v.removeEventListener('timeupdate', reset);
+        v.currentTime = 0;
+      });
+    });
+  </script>
+</body>
+</html>
