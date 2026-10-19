@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio des voix</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #2a3038; font-family: 'Segoe UI', 'Trebuchet MS', sans-serif; color: #eee; display: flex; justify-content: center; padding: 24px 16px; }
+    .panel { background: #1e2a38; border: 3px solid #4aa3df; border-radius: 10px; padding: 20px 24px; width: 100%; max-width: 640px; box-shadow: 0 0 40px #000; }
+    h1 { margin: 0 0 6px; text-align: center; }
+    .help { color: #9ab; font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
+    .help b { color: #ffd866; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: #2a3a4c; margin-bottom: 6px; border: 2px solid transparent; }
+    .row.rec { border-color: #e04040; background: #3a2a30; }
+    .row.done .status { color: #96cd32; }
+    .name { flex: 1; font-weight: bold; }
+    .name small { display: block; font-weight: normal; color: #9ab; font-size: 12px; }
+    .status { width: 92px; font-size: 13px; color: #9ab; text-align: right; }
+    button { font: inherit; cursor: pointer; border: none; border-radius: 6px; padding: 7px 12px; font-weight: bold; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    .btn-rec { background: #e04040; color: #fff; min-width: 118px; }
+    .btn-play { background: #3a4a5c; color: #eee; }
+    .actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+    .btn-main { background: #96cd32; color: #0a1018; padding: 10px 20px; font-size: 16px; }
+    .btn-sec { background: #4aa3df; color: #0a1018; padding: 10px 20px; font-size: 16px; }
+    .mic { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; font-size: 14px; }
+    .mic select { font: inherit; background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 6px; padding: 4px 8px; max-width: 320px; }
+    .meter { flex: 1; min-width: 120px; height: 10px; background: #2a3a4c; border-radius: 5px; overflow: hidden; }
+    .meter span { display: block; height: 100%; width: 0; background: #96cd32; transition: width 0.05s; }
+    #msg { text-align: center; margin-top: 12px; min-height: 20px; color: #ffd866; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>🎙️ Studio des voix</h1>
+    <p class="help">
+      Clique sur <b>● Enregistrer</b>, dis le prénom, puis clique sur <b>■ Stop</b>. Écoute avec <b>▶</b> et recommence si besoin.<br>
+      À la fin, clique sur <b>Télécharger tout</b> : les fichiers arrivent dans ton dossier Téléchargements (un fichier par personnage).
+      Il faudra ensuite les placer dans le dossier <b>voices</b> du jeu.
+    </p>
+    <div class="mic">
+      <label>Micro : <select id="micSelect"><option value="default">Micro par défaut</option></select></label>
+      <div class="meter"><span id="meterBar"></span></div>
+    </div>
+    <p class="help" id="diag">Le micro s'active au premier enregistrement.</p>
+    <div id="list"></div>
+    <div class="actions">
+      <button class="btn-main" id="dlAll" disabled>⬇ Télécharger tout</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <script src="js/characters.js"></script>
+  <script>
+    // Un enregistrement par personnage, gardé en mémoire jusqu'au téléchargement
+    const clips = {};
+    let recorder = null, recordingId = null, stream = null;
+    const msg = t => document.getElementById('msg').textContent = t;
+    const ext = type => type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
+
+    function render() {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      for (const [id, c] of Object.entries(CHARACTERS)) {
+        const row = document.createElement('div');
+        row.className = 'row' + (recordingId === id ? ' rec' : '') + (clips[id] ? ' done' : '');
+        row.innerHTML = `<div class="name">${c.name}<small>${c.role}</small></div>
+          <span class="status">${recordingId === id ? '🔴 Enregistre…' : clips[id] ? '✔ Enregistré' : '—'}</span>
+          <button class="btn-play" ${clips[id] && !recordingId ? '' : 'disabled'}>▶</button>
+          <button class="btn-rec" ${recordingId && recordingId !== id ? 'disabled' : ''}>${recordingId === id ? '■ Stop' : '● Enregistrer'}</button>`;
+        row.querySelector('.btn-play').onclick = () => playClip(id);
+        row.querySelector('.btn-rec').onclick = () => recordingId === id ? stop() : start(id);
+        list.appendChild(row);
+      }
+      document.getElementById('dlAll').disabled = !Object.keys(clips).length || !!recordingId;
+    }
+
+    // ---- Micro : choix du périphérique + indicateur de volume en direct ----
+    const micSelect = document.getElementById('micSelect');
+    let audioCtx = null, analyser = null, meterLoop = null;
+
+    async function openMic() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      const deviceId = micSelect.value && micSelect.value !== 'default' ? { exact: micSelect.value } : undefined;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId, echoCancellation: true, noiseSuppression: true } });
+      // Une fois l'accès accordé, les noms des micros sont visibles : on remplit la liste
+      const mics = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+      const current = stream.getAudioTracks()[0].getSettings().deviceId;
+      micSelect.innerHTML = mics.map(d => `<option value="${d.deviceId}" ${d.deviceId === current ? 'selected' : ''}>${d.label || 'Micro'}</option>`).join('');
+      // Diagnostic : un micro "coupé" ici est bloqué par Windows ou par une autre application
+      const track = stream.getAudioTracks()[0];
+      document.getElementById('diag').textContent =
+        `Micro utilisé : ${track.label || 'inconnu'} · ${track.readyState === 'live' ? 'actif' : 'arrêté'}${track.muted ? ' · ⚠ coupé par le système' : ''} · page : ${location.protocol === 'file:' ? 'fichier local' : location.host}`;
+      // Indicateur de volume
+      audioCtx = audioCtx || new AudioContext();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      cancelAnimationFrame(meterLoop);
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
+        document.getElementById('meterBar').style.width = Math.min(100, peak / 128 * 250) + '%';
+        meterLoop = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    micSelect.onchange = () => openMic().catch(() => msg("Impossible d'ouvrir ce micro."));
+
+    async function start(id) {
+      try {
+        if (!stream) await openMic();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+      } catch (e) {
+        msg("Impossible d'accéder au micro : autorise-le dans Chrome (icône à gauche de l'adresse).");
+        return;
+      }
+      const chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: recorder.mimeType });
+        recordingId = null;
+        if (blob.size < 2000) {
+          // Quelques centaines d'octets = aucun son capté (mauvais micro ou micro coupé)
+          msg(`${CHARACTERS[id].name} : rien n'a été capté. Choisis un autre micro dans la liste (la barre verte doit bouger quand tu parles).`);
+        } else {
+          clips[id] = blob;
+          msg(`${CHARACTERS[id].name} : enregistré ! (${Math.round(blob.size / 1024)} Ko)`);
+        }
+        render();
+      };
+      recordingId = id;
+      recorder.start(100); // récupère le son par petits morceaux, plus fiable
+      msg('Parle maintenant : la barre verte doit bouger.');
+      render();
+    }
+
+    function stop() { if (recorder && recorder.state === 'recording') recorder.stop(); }
+
+    // Lecture via une URL "data:" : les URL "blob:" passent mal quand la page est ouverte en fichier local
+    const toDataUrl = blob => new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+    let player = null;
+    async function playClip(id) {
+      const blob = clips[id];
+      if (!blob.size) { msg("L'enregistrement est vide : vérifie que le bon micro est sélectionné dans Chrome."); return; }
+      try {
+        if (player) player.pause();
+        player = new Audio(await toDataUrl(blob));
+        await player.play();
+        msg(`Lecture de ${CHARACTERS[id].name} (${Math.round(blob.size / 1024)} Ko)`);
+      } catch (e) {
+        msg('Lecture impossible : ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    // Télécharge chaque enregistrement sous le nom <id>.<ext> (ex. sheryna.webm), un par un
+    document.getElementById('dlAll').onclick = async () => {
+      for (const [id, blob] of Object.entries(clips)) {
+        const a = document.createElement('a');
+        a.href = await toDataUrl(blob);
+        a.download = `${id}.${ext(blob.type)}`;
+        a.click();
+        await new Promise(r => setTimeout(r, 300));
+      }
+      msg(`${Object.keys(clips).length} fichier(s) téléchargé(s). Dis à Claude de les ranger dans le dossier voices !`);
+    };
+
+    render();
+  </script>
+</body>
+</html>

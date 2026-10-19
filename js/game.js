@@ -335,6 +335,7 @@ function openCharSelect() {
   hide('title');
   show('start');
   game.state = 'start';
+  cursorChar = null; // annonce aussi le personnage déjà sélectionné à l'ouverture
   selectChar(selectedChar);
   fitCharSelect();
 }
@@ -343,6 +344,7 @@ function showCharSelect() {
   newGame(selectedChar);
   hide('gameover');
   show('start');
+  cursorChar = null; // annonce aussi le personnage déjà sélectionné à l'ouverture
   selectChar(selectedChar);
   fitCharSelect();
 }
@@ -375,6 +377,7 @@ function buildCharSelect() {
 }
 
 function selectChar(id) {
+  if (id !== cursorChar) Sfx.sayName(id, CHARACTERS[id].name); // une voix annonce le personnage survolé
   cursorChar = id;
   for (const b of document.querySelectorAll('.char')) b.classList.toggle('selected', b.dataset.id === id);
   renderCharInfo(id);
@@ -1794,7 +1797,7 @@ function draw() {
     } else if (ef.type === 'cable') {
       ctx.globalAlpha = 1 - k;
       ctx.beginPath();
-      ctx.ellipse(ef.x, ef.y, ef.w / 2, ef.h / 2, 0, Math.PI, Math.PI * 2);
+      ctx.ellipse(ef.x, ef.y, ef.w / 2, ef.h / 2, ef.angle || 0, Math.PI, Math.PI * 2);
       ctx.strokeStyle = '#2f80d0';
       ctx.lineWidth = Math.max(2, ef.h * 0.3 * (1 - k));
       ctx.stroke();
@@ -2266,6 +2269,7 @@ document.getElementById('chestBtn').onclick = closeChest;
 document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
 buildLevelSelect();
+Sfx.preloadVoices(Object.keys(CHARACTERS));
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);

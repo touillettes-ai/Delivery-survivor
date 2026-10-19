@@ -178,7 +178,7 @@ const WEAPONS = {
 
   cable: {
     name: 'Câble Ethernet', icon: '🔌', maxLevel: 6,
-    desc: 'Fouette horizontalement et traverse les ennemis.',
+    desc: "Fouette vers l'ennemi le plus proche et traverse les ennemis.",
     legend: 'Fouette 3 fois plus loin et presque 3 fois plus vite.',
     stats: l => ({
       dmg: 12 + l * 5,
@@ -192,15 +192,20 @@ const WEAPONS = {
       if (w.timer > 0) return;
       w.timer = st.cd * p.cdMult * (w.legendary ? 0.35 : 1);
       const reachMul = w.legendary ? 3 : 1; // légendaire : très loin, très vite
+      const ww = 140 * st.area * p.area * reachMul, hh = 36 * st.area * p.area;
+      // Fouette vers l'ennemi le plus proche à portée, sinon horizontalement (2e coup : à l'opposé)
+      const target = nearestEnemy(p.x, p.y, ww + 30);
+      const base = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.dirX < 0 ? Math.PI : 0);
       for (let s = 0; s < st.sides; s++) {
-        const d = s === 0 ? p.dirX : -p.dirX;
-        const ww = 140 * st.area * p.area * reachMul, hh = 36 * st.area * p.area;
-        const cx = p.x + d * (ww / 2 + 10), cy = p.y - 6 + s * 12;
+        const a = base + s * Math.PI, ca = Math.cos(a), sa = Math.sin(a);
+        const cx = p.x + ca * (ww / 2 + 10), cy = p.y + sa * (ww / 2 + 10);
         queryEnemies(cx, cy, ww / 2 + 40, e => {
-          if (!e.dead && Math.abs(e.x - cx) < ww / 2 + e.r && Math.abs(e.y - cy) < hh / 2 + e.r)
-            hitEnemy(e, st.dmg, d * 150, 0);
+          if (e.dead) return;
+          const dx = e.x - cx, dy = e.y - cy; // position dans le repère du coup de fouet
+          if (Math.abs(dx * ca + dy * sa) < ww / 2 + e.r && Math.abs(-dx * sa + dy * ca) < hh / 2 + e.r)
+            hitEnemy(e, st.dmg, ca * 150, sa * 150);
         });
-        game.effects.push({ type: 'cable', x: cx, y: cy, w: ww, h: hh, dir: d, t: 0, life: 0.22 });
+        game.effects.push({ type: 'cable', x: cx, y: cy, w: ww, h: hh, angle: a, t: 0, life: 0.22 });
       }
     },
   },
