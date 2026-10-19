@@ -168,6 +168,14 @@ let selectedLevel = 'gtar';
 // ---- Entrées ----
 const keys = {};
 addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') { // saisie du pseudo : pas de raccourcis du jeu
+    if (e.code === 'Enter') sendScore();
+    return;
+  }
+  if (!document.getElementById('board').classList.contains('hidden')) { // classement ouvert
+    if (e.code === 'Escape' || e.code === 'Enter') hide('board');
+    return;
+  }
   keys[e.code] = true;
   if (e.key && e.key.toLowerCase() === 'm' && !e.repeat) Sfx.toggle(); // couper / remettre le son (e.key : touche M en AZERTY comme en QWERTY)
   if (game.state === 'title') {
@@ -1674,9 +1682,89 @@ function endGame(won) {
   document.getElementById('endTitle').textContent = title;
   document.getElementById('stats').innerHTML = text + '<br>' +
     `Niveau : <b>${game.player.level}</b><br>Collègues neutralisés : <b>${game.kills}</b><br>Directeurs vaincus : <b>${game.bossKills}</b>`;
+  game.score = computeScore(won);
+  game.won = won;
+  document.getElementById('stats').innerHTML += `<br>Score : <b class="score">${game.score.toLocaleString('fr-FR')}</b>`;
   document.getElementById('dmgStats').innerHTML = damageTable();
+  if (Leaderboard.enabled) openEndLeaderboard();
   show('gameover');
 }
+
+// Score : éliminations, directeurs, temps tenu, plus un bonus de victoire selon le niveau
+function computeScore(won) {
+  let score = game.kills + game.bossKills * 100 + Math.floor(game.time) * 2;
+  if (won) {
+    score += 1000;
+    if (game.goal) score += Math.max(0, Math.floor(levelDuration() - game.time)) * 5; // arrivé tôt à la PI
+    if (game.server) score += Math.round(game.server.hp / game.server.maxHp * 1000); // serveur en bon état
+  }
+  return score;
+}
+
+// ---- Classement partagé (voir leaderboard.js) ----
+document.body.classList.toggle('lb-on', Leaderboard.enabled);
+let lbSent = false;
+
+function savedPseudo() { try { return localStorage.getItem('ds-pseudo') || ''; } catch (e) { return ''; } }
+
+async function openEndLeaderboard() {
+  lbSent = false;
+  const name = document.getElementById('lbName');
+  name.value = savedPseudo();
+  name.disabled = document.getElementById('lbSend').disabled = false;
+  document.getElementById('lbStatus').textContent = `Classement « ${LEVELS[game.level].name} »`;
+  refreshEndBoard();
+}
+
+async function refreshEndBoard(mine) {
+  const box = document.getElementById('lbTable');
+  try { box.innerHTML = leaderboardTable(await Leaderboard.top(game.level), mine); }
+  catch (e) { box.innerHTML = '<p class="help">Classement indisponible (connexion ?)</p>'; }
+}
+
+async function sendScore() {
+  if (lbSent || !Leaderboard.enabled || game.state !== 'over') return;
+  const input = document.getElementById('lbName'), status = document.getElementById('lbStatus');
+  const name = input.value.trim().slice(0, 20);
+  if (!name) { status.textContent = 'Entre un pseudo pour apparaître au classement.'; input.focus(); return; }
+  try { localStorage.setItem('ds-pseudo', name); } catch (e) { /* stockage indisponible */ }
+  lbSent = true;
+  input.disabled = document.getElementById('lbSend').disabled = true;
+  status.textContent = 'Envoi…';
+  const entry = { name, char: game.player.charId, score: game.score, won: game.won, time: Math.floor(game.time), kills: game.kills };
+  try {
+    await Leaderboard.submit(game.level, entry);
+    status.textContent = '✅ Score envoyé !';
+    refreshEndBoard(entry);
+  } catch (e) {
+    lbSent = false;
+    input.disabled = document.getElementById('lbSend').disabled = false;
+    status.textContent = "❌ Envoi impossible, réessaie plus tard.";
+  }
+}
+document.getElementById('lbSend').onclick = sendScore;
+
+// Fenêtre « Classement » depuis le choix du niveau, un onglet par niveau
+let boardLevel = 'gtar';
+async function showBoard(level = boardLevel) {
+  boardLevel = level;
+  const tabs = document.getElementById('boardTabs');
+  tabs.innerHTML = '';
+  for (const [id, lv] of Object.entries(LEVELS)) {
+    const b = document.createElement('button');
+    b.textContent = `${lv.icon} ${lv.name}`;
+    b.className = id === level ? 'active' : '';
+    b.onclick = () => showBoard(id);
+    tabs.appendChild(b);
+  }
+  const box = document.getElementById('boardTable');
+  box.innerHTML = '<p class="help">Chargement…</p>';
+  show('board');
+  try { box.innerHTML = leaderboardTable(await Leaderboard.top(level)); }
+  catch (e) { box.innerHTML = '<p class="help">Classement indisponible (connexion ?)</p>'; }
+}
+document.getElementById('boardBtn').onclick = () => showBoard(selectedLevel);
+document.getElementById('boardClose').onclick = () => hide('board');
 
 // Tableau des dégâts par source, de la plus efficace à la moins efficace
 const EXTRA_SOURCES = {

@@ -84,6 +84,16 @@
     .sound-opts .btn { min-width: 170px; }
     .sound-opts .btn.off { opacity: 0.6; text-decoration: line-through; }
 
+    /* Classement partagé */
+    .lb-send { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 8px 0 0; }
+    .lb-send input { font: inherit; background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 6px; padding: 8px 10px; width: 180px; }
+    .lb-send input:focus { outline: none; border-color: #ffd866; }
+    table.lb tr.me td { background: rgba(255, 216, 102, 0.15); }
+    .lb-tabs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .lb-tabs button { background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 6px; padding: 6px 10px; }
+    .lb-tabs button.active { border-color: #ffd866; color: #ffd866; }
+    body:not(.lb-on) .lb-only { display: none; }
+
     #chest .panel { border-color: #f0c030; }
     .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
     .reward .icon { font-size: 40px; }
@@ -128,6 +138,16 @@
       <h1>Choisis ton niveau<small id="levelChar"></small></h1>
       <div id="levelList"></div>
       <p class="help">Choix : <b>flèches + Entrée</b>, <b>1</b> / <b>2</b> / <b>3</b> ou clic · <b>Échap</b> : changer de personnage</p>
+      <button class="btn secondary lb-only" id="boardBtn">🏆 Classement</button>
+    </div>
+  </div>
+
+  <div id="board" class="overlay hidden">
+    <div class="panel">
+      <h1>🏆 Classement<small>Les meilleurs scores de l'équipe</small></h1>
+      <div class="lb-tabs" id="boardTabs"></div>
+      <div id="boardTable"></div>
+      <button class="btn" id="boardClose">Fermer</button>
     </div>
   </div>
 
@@ -163,15 +183,24 @@
       <h1 id="endTitle">Burn-out !</h1>
       <p id="stats"></p>
       <div id="dmgStats"></div>
+      <div class="lb-only" id="lbBox">
+        <div class="lb-send">
+          <input id="lbName" maxlength="20" placeholder="Ton pseudo" autocomplete="nickname">
+          <button class="btn" id="lbSend">🏆 Envoyer mon score</button>
+        </div>
+        <p class="help" id="lbStatus"></p>
+        <div id="lbTable"></div>
+      </div>
       <button class="btn" id="restartBtn">Rejouer</button>
       <button class="btn secondary" id="changeBtn">Changer de personnage</button>
     </div>
   </div>
 
-  <script src="js/audio.js?v=2"></script>
-  <script src="js/textures.js?v=2"></script>
-  <script src="js/weapons.js?v=2"></script>
-  <script src="js/characters.js?v=2"></script>
-  <script src="js/game.js?v=2"></script>
+  <script src="js/audio.js?v=4"></script>
+  <script src="js/textures.js?v=4"></script>
+  <script src="js/weapons.js?v=4"></script>
+  <script src="js/characters.js?v=4"></script>
+  <script src="js/leaderboard.js?v=4"></script>
+  <script src="js/game.js?v=4"></script>
 </body>
 </html>
