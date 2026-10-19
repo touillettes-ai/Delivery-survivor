@@ -29,7 +29,7 @@ const SPECIAL_MEP = { name: 'Pluie de MEP', icon: '📋', desc: 'Une pluie de de
 const CHARACTERS = {
   coline: {
     name: 'Coline', role: 'Manager Delivery', team: 'Management',
-    desc: 'Longs cheveux bruns ondulés, toujours entre deux salles de réunion.',
+    desc: "Toujours entre deux salles de réunion, c'est elle la cheffe.",
     weapon: 'postit',
     bonus: { icon: '🏃', name: 'Marathon de réunions', desc: '+15% de vitesse' },
     apply: p => p.speed *= 1.15,
@@ -37,7 +37,7 @@ const CHARACTERS = {
   },
   amelie: {
     name: 'Amélie', role: 'Appui Management', team: 'Management',
-    desc: "Sa crinière rousse se repère de loin dans l'open space. Et ses couches aussi.",
+    desc: "Quand on ne lui remonte pas d'alertes, elle chante du Céline Dion avec une justesse inégalée.",
     weapon: 'diaper',
     bonus: { icon: '🤝', name: 'Appui au management', desc: '+0,5 PV / seconde' },
     apply: p => p.regen += 0.5,
@@ -45,7 +45,7 @@ const CHARACTERS = {
   },
   sheryna: {
     name: 'Sheryna', role: 'Coordinatrice CAC', team: 'Support',
-    desc: 'Cheveux bruns lisses. Petite, rapide, et son rire porte loin.',
+    desc: "Petite, rapide, son rire porte si loin qu'on l'entend rire depuis la Corse.",
     weapon: 'laugh',
     bonus: { icon: '⚡', name: 'Petite et rapide', desc: '+30% de vitesse' },
     apply: p => { p.speed *= 1.3; p.r = 11; }, // r : hitbox plus petite, comme son sprite
@@ -54,7 +54,7 @@ const CHARACTERS = {
   },
   youssef: {
     name: 'Youssef', role: 'Configuration Manager', team: 'Support',
-    desc: 'Barbe noire impeccable. Il balance la CMDB à la figure des intrus.',
+    desc: 'Il balance la CMDB à la figure des intrus. Entre deux lancers, il ajoute de nouveaux serveurs.',
     weapon: 'database',
     bonus: { icon: '👑', name: 'Roi de la CMDB', desc: '+30% de vitesse des projectiles' },
     apply: p => p.projSpeed *= 1.3,
@@ -70,7 +70,7 @@ const CHARACTERS = {
   },
   cecile: {
     name: 'Cécile', role: 'Delivery Manager', team: 'Opérationnel',
-    desc: "Blonde aux cheveux ondulés. C'est elle qui dit GO ou NO GO.",
+    desc: "C'est elle qui dit GO ou NO GO.",
     weapon: 'gonogo',
     bonus: { icon: '🧲', name: 'Radar à livraisons', desc: '+50% de rayon de ramassage' },
     apply: p => p.magnet *= 1.5,
@@ -78,7 +78,7 @@ const CHARACTERS = {
   },
   franck: {
     name: 'Franck', role: 'Delivery Manager', team: 'Opérationnel',
-    desc: "Lunettes et grand sourire. L'expérience parle.",
+    desc: "C'est lui qui dit GO ou NO GO. Sauf pour Prépa V2 : il a dit GO, et la suite… on la connaît.",
     weapon: 'gonogo',
     bonus: { icon: '🧘', name: 'Zen en toute circonstance', desc: '+1 PV / seconde' },
     apply: p => p.regen += 1,
@@ -86,7 +86,7 @@ const CHARACTERS = {
   },
   danila: {
     name: 'Danila', role: 'Responsable Qualité', team: 'Opérationnel',
-    desc: 'Zéro défaut toléré, et les coups glissent sur elle.',
+    desc: "Agent Danila : avec elle, aucune mission n'est impossible.",
     weapon: 'beer',
     bonus: { icon: '✅', name: 'Zéro défaut', desc: '-3 dégâts subis par coup' },
     apply: p => p.armor += 3,
@@ -109,14 +109,14 @@ const CHARACTERS = {
   },
   arno: {
     name: 'Arno', role: 'Chef de projet Agile', team: 'Agilité',
-    desc: 'Barbe poivre et sel. Ses avions en papier livrent à chaque sprint.',
+    desc: 'Ses avions en papier livrent à chaque sprint.',
     weapon: 'plane',
     passives: { speed: 1 },
     special: { name: 'Népal attitude', icon: '🧘', desc: 'Entre en lévitation, et des rochers tombent du ciel sur les ennemis.', type: 'rain', sprite: 'rock', levitate: true },
   },
   justine: {
     name: 'Justine', role: 'Release Train Engineer', team: 'Agilité',
-    desc: 'Cheveux bruns frisés. Ses rétros vont toujours à la cause racine.',
+    desc: "Le train part à l'heure, avec ou sans toi.",
     weapon: 'train',
     bonus: { icon: '🗓️', name: 'Organisation de PI', desc: '-10% de temps de recharge' },
     apply: p => p.cdMult *= 0.9,
@@ -124,14 +124,14 @@ const CHARACTERS = {
   },
   sandie: {
     name: 'Sandie', role: 'Change Manager', team: 'Process',
-    desc: 'Longs cheveux châtains. Aucun changement ne passe sans elle.',
+    desc: 'Aucun changement ne passe sans elle. Aucune dérogation possible !',
     weapon: 'stapler',
     passives: { haste: 1 },
     special: { name: 'ECAB du vendredi 17h25', icon: '😱', desc: 'Crie « NOOOOON ! » : les ondes de choc tuent les ennemis sur le coup.', type: 'shout' },
   },
   stephan: {
     name: 'Stephan', role: 'Incident Problème Crise Manager', team: 'Process',
-    desc: "Cheveux blancs en bataille. Des crises, il en a vu d'autres.",
+    desc: "Des crises, il en a vu d'autres.",
     weapon: 'keyboard',
     passives: { might: 1 },
     special: {
@@ -141,7 +141,7 @@ const CHARACTERS = {
   },
   bastien: {
     name: 'Bastien', role: 'Incident Manager', team: 'Process',
-    desc: 'Son crâne chauve reflète les néons. Personne ne lui résiste.',
+    desc: 'Son crâne chauve reflète les néons. Aucun incident ne lui résiste.',
     weapon: 'coffee',
     passives: { might: 1 },
     special: { name: 'Distribution de tickets', icon: '🎫', desc: 'Lance des tickets sur tous les ennemis pour les éliminer.', type: 'barrage', sprites: ['ticket'] },

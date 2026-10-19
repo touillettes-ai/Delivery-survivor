@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Delivery Survivor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #2a3038; font-family: 'Segoe UI', 'Trebuchet MS', sans-serif; color: #eee; }
@@ -94,6 +97,30 @@
     .lb-tabs button.active { border-color: #ffd866; color: #ffd866; }
     body:not(.lb-on) .lb-only { display: none; }
 
+    /* Style rétro : police pixel art pour les titres, cadres doubles, apparition animée */
+    h1, .team-title, .btn, .press { font-family: 'Press Start 2P', 'Segoe UI', sans-serif; }
+    h1 { font-size: 18px; line-height: 1.5; }
+    h1 small { font-family: 'Segoe UI', 'Trebuchet MS', sans-serif; font-size: 14px; }
+    .team-title { font-size: 20px; }
+    .btn { font-size: 11px; padding: 12px 18px; border-radius: 4px; box-shadow: 0 4px 0 #1a4a70; }
+    .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #1a4a70; }
+    .btn.secondary { box-shadow: 0 4px 0 #1e2a38; }
+    .press { font-size: 12px; }
+    .panel { border-radius: 4px; box-shadow: 0 0 0 3px #0a1018, 0 0 0 6px #2a5a80, 0 14px 40px #000; }
+    .overlay:not(.hidden) { animation: overlay-in 0.2s ease-out; }
+    .overlay:not(.hidden):not(#start) > .panel { animation: panel-in 0.25s cubic-bezier(.2, 1.4, .4, 1); }
+    @keyframes overlay-in { from { opacity: 0; } }
+    @keyframes panel-in { from { transform: scale(0.9) translateY(10px); opacity: 0; } }
+
+    /* Choix de la difficulté */
+    .diff-title { font-family: 'Press Start 2P', sans-serif; font-size: 12px; color: #8fc4ea; margin: 16px 0 8px; }
+    #diffList { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .diff-btn { flex: 1; min-width: 140px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: #2a3a4c; color: #eee; border: 2px solid #3a5068; border-radius: 6px; padding: 8px; }
+    .diff-btn span { font-size: 22px; }
+    .diff-btn small { color: #9ab; font-size: 11px; }
+    .diff-btn:hover { border-color: #8fc4ea; }
+    .diff-btn.selected { border-color: #ffd866; background: #34485e; }
+
     #chest .panel { border-color: #f0c030; }
     .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
     .reward .icon { font-size: 40px; }
@@ -137,7 +164,9 @@
     <div class="panel">
       <h1>Choisis ton niveau<small id="levelChar"></small></h1>
       <div id="levelList"></div>
-      <p class="help">Choix : <b>flèches + Entrée</b>, <b>1</b> / <b>2</b> / <b>3</b> ou clic · <b>Échap</b> : changer de personnage</p>
+      <h2 class="diff-title">Difficulté</h2>
+      <div id="diffList"></div>
+      <p class="help">Niveau : <b>↑ ↓</b>, <b>1</b> / <b>2</b> / <b>3</b> ou clic · Difficulté : <b>← →</b> · <b>Entrée</b> : jouer · <b>Échap</b> : changer de personnage</p>
       <button class="btn secondary lb-only" id="boardBtn">🏆 Classement</button>
     </div>
   </div>
@@ -167,6 +196,8 @@
         <button class="btn secondary" id="sfxBtn"></button>
       </div>
       <p class="help"><b>M</b> : couper / remettre tout le son</p>
+      <button class="btn" id="resumeBtn">▶ Reprendre</button>
+      <button class="btn secondary" id="quitBtn">🏠 Abandonner</button>
     </div>
   </div>
 
@@ -196,11 +227,11 @@
     </div>
   </div>
 
-  <script src="js/audio.js?v=6"></script>
-  <script src="js/textures.js?v=6"></script>
-  <script src="js/weapons.js?v=6"></script>
-  <script src="js/characters.js?v=6"></script>
-  <script src="js/leaderboard.js?v=6"></script>
-  <script src="js/game.js?v=6"></script>
+  <script src="js/audio.js?v=10"></script>
+  <script src="js/textures.js?v=10"></script>
+  <script src="js/weapons.js?v=10"></script>
+  <script src="js/characters.js?v=10"></script>
+  <script src="js/leaderboard.js?v=10"></script>
+  <script src="js/game.js?v=10"></script>
 </body>
 </html>

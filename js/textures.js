@@ -666,9 +666,61 @@ function badge(g) {
   g.beginPath(); g.arc(10, 10, 10, 0, Math.PI * 2); g.fill();
 }
 
+// ---- Sprites « finis » : contour sombre + éclairage (reflet en haut des formes, ombre en bas) ----
+function shadeHex(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = v => Math.max(0, Math.min(255, Math.round(k > 0 ? v + (255 - v) * k : v * (1 + k))));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+function polishedSprite(rows, palette, scale = SCALE) {
+  const pad = ['.'.repeat(rows[0].length + 2), ...rows.map(r => '.' + r + '.'), '.'.repeat(rows[0].length + 2)];
+  const h = pad.length, w = pad[0].length, at = (x, y) => (y < 0 || y >= h || x < 0 || x >= w ? '.' : pad[y][x]);
+  return makeCanvas(w * scale, h * scale, g => {
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const ch = pad[y][x];
+        let c;
+        if (ch === '.') {
+          // Contour : case vide qui touche le personnage
+          if (at(x - 1, y) === '.' && at(x + 1, y) === '.' && at(x, y - 1) === '.' && at(x, y + 1) === '.') continue;
+          c = 'rgba(12,14,22,0.85)';
+        } else {
+          const base = palette[ch];
+          if (!base.startsWith('#') || base.length !== 7) c = base;
+          else if (at(x, y - 1) !== ch) c = shadeHex(base, 0.22);       // bord haut d'une zone : reflet
+          else if (at(x, y + 1) !== ch) c = shadeHex(base, -0.22);      // bord bas : ombre
+          else if (at(x + 1, y) !== ch) c = shadeHex(base, -0.1);       // bord droit : légère ombre
+          else c = base;
+        }
+        g.fillStyle = c;
+        g.fillRect(x * scale, y * scale, scale, scale);
+      }
+  });
+}
+
+// Animation de marche : on lève un pied puis l'autre (les 3 dernières lignes = jambes et pieds)
+function walkRows(rows, side) {
+  const n = rows.length, w = rows[0].length, mid = w / 2;
+  return rows.map((row, r) => {
+    if (r < n - 3) return row;
+    let out = '';
+    for (let c = 0; c < w; c++) {
+      const lifted = side === 'left' ? c < mid : c >= mid;
+      out += lifted ? (r + 1 < n ? rows[r + 1][c] : '.') : row[c];
+    }
+    return out;
+  });
+}
+
+// 4 images de marche : pied droit levé, repos, pied gauche levé, repos
+function walkFrames(rows, pal, scale) {
+  const base = polishedSprite(rows, pal, scale);
+  return [polishedSprite(walkRows(rows, 'right'), pal, scale), base, polishedSprite(walkRows(rows, 'left'), pal, scale), base];
+}
+
 function charSet(rows, pal) {
-  const img = pixelSprite(rows, pal);
-  return { right: img, left: flipped(img) };
+  const img = polishedSprite(rows, pal), walk = walkFrames(rows, pal);
+  return { right: img, left: flipped(img), walkRight: walk, walkLeft: walk.map(flipped) };
 }
 
 function enemySet(frames) {
@@ -677,12 +729,12 @@ function enemySet(frames) {
 
 const Sprites = {
   ...Object.fromEntries(Object.entries(CHAR_SKINS).map(([id, [rows, pal]]) => [id, charSet(rows, pal)])),
-  intern: enemySet([pixelSprite(INTERN_ROWS, INTERN_PAL)]),
-  commercial: enemySet([pixelSprite(COMMERCIAL_ROWS, COMMERCIAL_PAL)]),
-  rh: enemySet([pixelSprite(RH_ROWS, RH_PAL)]),
-  director: enemySet([pixelSprite(DIRECTOR_ROWS, DIRECTOR_PAL)]),
-  coworker: enemySet([pixelSprite(COWORKER_ROWS, COWORKER_PAL)]),
-  manager: enemySet([pixelSprite(MANAGER_ROWS, MANAGER_PAL)]),
+  intern: enemySet(walkFrames(INTERN_ROWS, INTERN_PAL)),
+  commercial: enemySet(walkFrames(COMMERCIAL_ROWS, COMMERCIAL_PAL)),
+  rh: enemySet(walkFrames(RH_ROWS, RH_PAL)),
+  director: enemySet(walkFrames(DIRECTOR_ROWS, DIRECTOR_PAL)),
+  coworker: enemySet(walkFrames(COWORKER_ROWS, COWORKER_PAL)),
+  manager: enemySet(walkFrames(MANAGER_ROWS, MANAGER_PAL)),
   follower: charSet(...FOLLOWER_SKIN),
   speakerA: charSet(SPEAKER_ROWS, SPEAKER_A),
   speakerB: charSet(SPEAKER_ROWS, SPEAKER_B),
@@ -1010,16 +1062,115 @@ Textures.datacenter = makeDatacenterFloor();
 
 // ---- Nouveaux ennemis et directeurs ----
 // Consultant : costume beige, cravate verte, reste à distance et lance des PowerPoint
-Sprites.consultant = enemySet([pixelSprite(MANAGER_ROWS, { h: '#d8b060', s: '#f0c8a0', b: '#5a4020', e: '#111', m: '#a04040', J: '#a89878', W: '#fff', t: '#2a9a50', k: '#3a2a1a' })]);
+Sprites.consultant = enemySet(walkFrames(MANAGER_ROWS, { h: '#d8b060', s: '#f0c8a0', b: '#5a4020', e: '#111', m: '#a04040', J: '#a89878', W: '#fff', t: '#2a9a50', k: '#3a2a1a' }));
 // Directeurs : même silhouette, costume et cravate selon le poste
 const dirPal = (hair, suit, tie) => ({ ...DIRECTOR_PAL, g: hair, J: suit, t: tie });
 Object.assign(Sprites, {
-  dir_dsi: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#2a2a2a', '#1a2a5a', '#30c0e0'))]),
-  dir_drh: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#6a4020', '#5a1a2a', '#f070a0'))]),
-  dir_daf: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#a8a8a8', '#3a3a3a', '#e0b020'))]),
-  dir_pdg: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#f0f0f0', '#0a0a0a', '#ffd040'))]),
+  dir_dsi: enemySet(walkFrames(DIRECTOR_ROWS, dirPal('#2a2a2a', '#1a2a5a', '#30c0e0'))),
+  dir_drh: enemySet(walkFrames(DIRECTOR_ROWS, dirPal('#6a4020', '#5a1a2a', '#f070a0'))),
+  dir_daf: enemySet(walkFrames(DIRECTOR_ROWS, dirPal('#a8a8a8', '#3a3a3a', '#e0b020'))),
+  dir_pdg: enemySet(walkFrames(DIRECTOR_ROWS, dirPal('#f0f0f0', '#0a0a0a', '#ffd040'))),
 });
 // Diapo PowerPoint lancée par les consultants
 Textures.ppt = makeCanvas(18, 14, g => {
   drawRects(g, [[0, 0, 18, 14, '#c8501e'], [1, 4, 16, 9, '#fafafa'], [3, 6, 8, 1, '#888'], [3, 8, 11, 1, '#888'], [3, 10, 6, 1, '#888'], [12, 6, 4, 4, '#e0a020']]);
 });
+
+// ---- Variété de décors ----
+const circle = (g, x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+Object.assign(PROP_IMAGES, {
+  // Niveau 1 : open space
+  meeting: makeCanvas(132, 96, g => { // table de réunion et ses chaises
+    for (const x of [22, 52, 82, 112]) drawRects(g, [[x - 9, 2, 18, 12, '#2a3340'], [x - 7, 4, 14, 8, '#3a4656']]);
+    drawRects(g, [[4, 14, 124, 54, '#8a5a34'], [4, 14, 124, 3, '#a87448'], [4, 64, 124, 6, '#5a3a20'], [40, 30, 22, 14, '#fafafa'], [42, 32, 18, 2, '#aaa'], [42, 36, 12, 2, '#aaa'], [86, 34, 8, 8, '#f4f4f4'], [87, 35, 6, 3, '#5a3a20']]);
+    for (const x of [22, 52, 82, 112]) drawRects(g, [[x - 9, 74, 18, 14, '#2a3340'], [x - 7, 76, 14, 10, '#3a4656']]);
+  }),
+  coffee: makeCanvas(64, 64, g => { // coin café : comptoir + machine
+    drawRects(g, [[2, 26, 60, 36, '#c8ccd4'], [2, 26, 60, 4, '#e8ecf0'], [2, 58, 60, 4, '#8a8e96'], [8, 4, 22, 26, '#2a2e36'], [10, 8, 18, 8, '#4a90d0'], [15, 18, 8, 6, '#111'], [16, 24, 6, 4, '#f4f4f4'], [38, 14, 8, 12, '#fafafa'], [40, 16, 4, 3, '#5a3010'], [50, 18, 8, 8, '#f0c030']]);
+  }),
+  whiteboard: makeCanvas(68, 64, g => { // tableau Kanban couvert de post-it
+    drawRects(g, [[2, 2, 64, 40, '#8a8e96'], [4, 4, 60, 36, '#fafafa'], [24, 4, 1, 36, '#c8ccd4'], [44, 4, 1, 36, '#c8ccd4'], [10, 46, 3, 16, '#5a5e66'], [55, 46, 3, 16, '#5a5e66'], [6, 58, 56, 4, '#5a5e66']]);
+    const cols = ['#fff070', '#ff9ac0', '#9ad8ff', '#a8f0a0'];
+    for (let i = 0; i < 9; i++) drawRects(g, [[7 + (i % 3) * 20 + (i * 3) % 5, 8 + Math.floor(i / 3) * 10, 9, 7, cols[i % 4]]]);
+  }),
+  cabinet: makeCanvas(32, 56, g => { // armoire à dossiers
+    drawRects(g, [[2, 2, 28, 52, '#7a8494'], [2, 2, 28, 3, '#9aa4b4']]);
+    for (let i = 0; i < 4; i++) drawRects(g, [[4, 8 + i * 12, 24, 10, '#8a94a4'], [12, 12 + i * 12, 8, 2, '#3a404a']]);
+  }),
+  bookshelf: makeCanvas(56, 64, g => { // étagère de classeurs
+    drawRects(g, [[2, 2, 52, 60, '#6a4a2a'], [2, 2, 52, 3, '#8a6440']]);
+    const cols = ['#c03a3a', '#3a6ab0', '#e0a020', '#3fa04a', '#7a4ab0', '#f4f4f4'];
+    for (let r = 0; r < 4; r++) {
+      drawRects(g, [[4, 18 + r * 14, 48, 2, '#4a3018']]);
+      for (let i = 0; i < 7; i++) drawRects(g, [[6 + i * 6.6, 7 + r * 14, 5, 11, cols[(i + r * 2) % cols.length]]]);
+    }
+  }),
+  // Niveau 2 : espaces détente
+  pingpong: makeCanvas(104, 64, g => {
+    drawRects(g, [[2, 6, 100, 44, '#1d6a4a'], [2, 6, 100, 2, '#2a8a60'], [51, 6, 2, 44, '#fafafa'], [2, 27, 100, 1, '#e8f0e8'], [48, 2, 8, 52, '#d8dce4'], [8, 50, 4, 12, '#2a2a2a'], [92, 50, 4, 12, '#2a2a2a']]);
+    circle(g, 30, 18, 3, '#ff8a30');
+  }),
+  babyfoot: makeCanvas(84, 56, g => {
+    drawRects(g, [[6, 6, 72, 40, '#6a4020'], [10, 10, 64, 32, '#2a8a40'], [41, 10, 2, 32, '#fafafa'], [8, 46, 4, 8, '#3a2a1a'], [72, 46, 4, 8, '#3a2a1a']]);
+    for (const x of [18, 30, 54, 66]) {
+      drawRects(g, [[x, 2, 2, 48, '#c8ccd4']]);
+      for (let k = 0; k < 3; k++) circle(g, x + 1, 16 + k * 9, 3, x < 42 ? '#e04040' : '#3060c0');
+    }
+  }),
+  beanbags: makeCanvas(76, 44, g => {
+    circle(g, 20, 26, 16, '#e05a8a'); circle(g, 18, 22, 10, '#f07aa8');
+    circle(g, 54, 24, 17, '#3aa0d0'); circle(g, 52, 20, 10, '#5ac0f0');
+  }),
+  // Niveau 3 : salle serveur
+  ups: makeCanvas(40, 60, g => { // onduleur
+    drawRects(g, [[2, 2, 36, 56, '#d8dce2'], [2, 2, 36, 3, '#f0f2f4'], [6, 8, 28, 10, '#1a1e26'], [8, 10, 18, 6, '#40e070'], [6, 22, 28, 2, '#e0b020'], [6, 26, 28, 2, '#e0b020'], [6, 50, 28, 6, '#8a8e96']]);
+  }),
+  tapelib: makeCanvas(60, 72, g => { // bibliothèque de bandes
+    drawRects(g, [[2, 2, 56, 68, '#22262e'], [2, 2, 56, 3, '#3a404a'], [6, 8, 48, 30, '#88a8c8'], [8, 10, 44, 26, '#2a3a4c']]);
+    for (let i = 0; i < 4; i++) for (let k = 0; k < 6; k++) drawRects(g, [[10 + k * 7, 12 + i * 6, 5, 4, k % 2 ? '#3a6ab0' : '#c8ccd4']]);
+    drawRects(g, [[6, 44, 48, 20, '#2e333c'], [10, 48, 6, 2, '#40e070'], [10, 52, 6, 2, '#ffb030']]);
+  }),
+  cart: makeCanvas(44, 40, g => { // chariot avec un serveur démonté
+    drawRects(g, [[4, 6, 36, 20, '#3a404a'], [6, 8, 32, 6, '#5a606a'], [8, 16, 28, 4, '#2a2e36'], [4, 26, 36, 4, '#8a8e96'], [6, 30, 2, 6, '#555'], [36, 30, 2, 6, '#555']]);
+    circle(g, 8, 36, 3, '#111'); circle(g, 36, 36, 3, '#111');
+  }),
+  extinguisher: makeCanvas(18, 36, g => {
+    drawRects(g, [[5, 8, 8, 26, '#d02020'], [5, 8, 8, 2, '#f04040'], [6, 4, 6, 4, '#2a2a2a'], [11, 2, 5, 3, '#2a2a2a'], [6, 18, 6, 5, '#fafafa']]);
+  }),
+});
+Object.assign(PROPS, {
+  meeting:      { img: PROP_IMAGES.meeting,      w: 124, h: 60, top: 12 },
+  coffee:       { img: PROP_IMAGES.coffee,       w: 60,  h: 24, top: 36 },
+  whiteboard:   { img: PROP_IMAGES.whiteboard,   w: 60,  h: 8,  top: 54 },
+  cabinet:      { img: PROP_IMAGES.cabinet,      w: 28,  h: 14, top: 40 },
+  bookshelf:    { img: PROP_IMAGES.bookshelf,    w: 52,  h: 14, top: 48 },
+  pingpong:     { img: PROP_IMAGES.pingpong,     w: 100, h: 34, top: 14 },
+  babyfoot:     { img: PROP_IMAGES.babyfoot,     w: 72,  h: 30, top: 14 },
+  beanbags:     { img: PROP_IMAGES.beanbags,     w: 68,  h: 20, top: 16 },
+  ups:          { img: PROP_IMAGES.ups,          w: 36,  h: 16, top: 42 },
+  tapelib:      { img: PROP_IMAGES.tapelib,      w: 56,  h: 18, top: 52 },
+  cart:         { img: PROP_IMAGES.cart,         w: 36,  h: 12, top: 24 },
+  extinguisher: { img: PROP_IMAGES.extinguisher, w: 10,  h: 8,  top: 26 },
+});
+
+// Décalcomanies au sol (sans collision) pour casser la répétition du sol
+const DECALS = {
+  stain: makeCanvas(40, 24, g => { g.fillStyle = 'rgba(70,45,25,0.35)'; g.beginPath(); g.ellipse(20, 12, 16, 9, 0.3, 0, Math.PI * 2); g.fill(); circle(g, 34, 6, 3, 'rgba(70,45,25,0.3)'); }),
+  papers: makeCanvas(48, 32, g => {
+    g.save(); g.translate(18, 14); g.rotate(-0.3); drawRects(g, [[-10, -7, 20, 14, '#f4f4f4'], [-7, -4, 12, 1, '#999'], [-7, -1, 10, 1, '#999']]); g.restore();
+    g.save(); g.translate(32, 20); g.rotate(0.4); drawRects(g, [[-9, -6, 18, 12, '#ececec'], [-6, -3, 10, 1, '#999']]); g.restore();
+  }),
+  rugGray: makeCanvas(140, 90, g => { drawRects(g, [[0, 0, 140, 90, 'rgba(40,46,56,0.55)'], [6, 6, 128, 78, 'rgba(70,80,96,0.5)'], [12, 12, 116, 66, 'rgba(40,46,56,0.4)']]); }),
+  cable: makeCanvas(120, 30, g => { g.strokeStyle = 'rgba(20,20,24,0.8)'; g.lineWidth = 3; g.beginPath(); g.moveTo(2, 20); g.bezierCurveTo(40, 2, 70, 30, 118, 10); g.stroke(); }),
+  rugRed: makeCanvas(150, 96, g => { drawRects(g, [[0, 0, 150, 96, 'rgba(150,40,50,0.6)'], [6, 6, 138, 84, 'rgba(200,160,80,0.45)'], [12, 12, 126, 72, 'rgba(150,40,50,0.5)']]); circle(g, 75, 48, 18, 'rgba(200,160,80,0.45)'); }),
+  rugBlue: makeCanvas(120, 120, g => { circle(g, 60, 60, 58, 'rgba(50,90,150,0.55)'); circle(g, 60, 60, 44, 'rgba(240,240,240,0.25)'); circle(g, 60, 60, 30, 'rgba(50,90,150,0.5)'); }),
+  leaves: makeCanvas(60, 40, g => {
+    for (const [x, y, c] of [[10, 10, '#3a8a3e'], [24, 22, '#5aae4a'], [40, 12, '#c89030'], [50, 30, '#3a8a3e'], [16, 32, '#c89030']]) { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, 4, 2, x, 0, Math.PI * 2); g.fill(); }
+  }),
+  hazard: makeCanvas(96, 16, g => {
+    for (let i = -2; i < 14; i++) { g.fillStyle = i % 2 ? '#e0b020' : '#1a1a1a'; g.beginPath(); g.moveTo(i * 8, 16); g.lineTo(i * 8 + 8, 16); g.lineTo(i * 8 + 16, 0); g.lineTo(i * 8 + 8, 0); g.fill(); }
+  }),
+  cableRun: makeCanvas(160, 24, g => {
+    for (const [c, o] of [['#2f6fd0', 0], ['#e0b020', 5], ['#d03030', 10]]) { g.strokeStyle = c; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 6 + o); g.bezierCurveTo(50, o, 100, 14 + o / 2, 160, 6 + o); g.stroke(); }
+  }),
+};

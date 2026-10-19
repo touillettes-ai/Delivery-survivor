@@ -35,6 +35,6 @@ function leaderboardTable(rows, mine) {
       const me = mine && r.name === mine.name && r.score === mine.score;
       const c = CHARACTERS[r.char];
       return `<tr${me ? ' class="me"' : ''}><td class="num">${['🥇', '🥈', '🥉'][i] || i + 1}</td><td><b>${escapeHtml(r.name)}</b></td>
-        <td>${c ? escapeHtml(c.name) : ''}</td><td class="num">${Math.round(r.score).toLocaleString('fr-FR')}</td><td>${r.won ? '✅' : '❌'}</td></tr>`;
+        <td>${c ? escapeHtml(c.name) : ''}</td><td class="num">${Math.round(r.score).toLocaleString('fr-FR')}</td><td>${r.won ? '✅' : '❌'} ${(DIFFICULTIES[r.diff] || {}).icon || ''}</td></tr>`;
     }).join('') + '</tbody></table>';
 }
