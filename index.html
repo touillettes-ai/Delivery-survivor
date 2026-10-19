@@ -80,6 +80,10 @@
     table.dmg .bar span { display: block; height: 100%; background: #4aa3df; }
     table.dmg tr.legendary .bar span { background: #ff3a6a; }
 
+    .sound-opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .sound-opts .btn { min-width: 170px; }
+    .sound-opts .btn.off { opacity: 0.6; text-decoration: line-through; }
+
     #chest .panel { border-color: #f0c030; }
     .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
     .reward .icon { font-size: 40px; }
@@ -135,7 +139,15 @@
   </div>
 
   <div id="pause" class="overlay hidden">
-    <div class="panel"><h1>Pause café</h1><p>Appuie sur Échap pour reprendre<br><span class="help"><b>M</b> : couper / remettre le son</span></p></div>
+    <div class="panel">
+      <h1>Pause café</h1>
+      <p>Appuie sur Échap pour reprendre</p>
+      <div class="sound-opts">
+        <button class="btn secondary" id="musicBtn"></button>
+        <button class="btn secondary" id="sfxBtn"></button>
+      </div>
+      <p class="help"><b>M</b> : couper / remettre tout le son</p>
+    </div>
   </div>
 
   <div id="chest" class="overlay hidden">

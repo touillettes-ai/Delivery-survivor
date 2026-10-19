@@ -59,6 +59,8 @@ const FOLLOWER_KILL_LINES = ["Je t'ai géré ça !", 'Pas de quoi Sheryna !'];
 const FOLLOWER_MEETING = 30; // durée de sa réunion (double-clic dessus), en secondes
 
 // Couleur de l'aura des armes selon leur niveau (index = niveau, 1 = pas d'aura)
+const SOUND_ON_HIT = new Set(['coffee', 'postit']); // armes sans tir : le son joue quand elles touchent
+
 // Index 7 = version légendaire
 const LEVEL_COLORS = [null, null, '#ffffff', '#7fd8ff', '#3ad06a', '#b060ff', '#ffd040', '#ff3a6a'];
 const LEGENDARY_LEVEL = 7;
@@ -335,8 +337,8 @@ function openCharSelect() {
   hide('title');
   show('start');
   game.state = 'start';
-  cursorChar = null; // annonce aussi le personnage déjà sélectionné à l'ouverture
-  selectChar(selectedChar);
+  lastSpoken = null; // à l'ouverture, pas d'annonce : seul le survol fait parler
+  selectChar(selectedChar, false);
   fitCharSelect();
 }
 
@@ -344,8 +346,8 @@ function showCharSelect() {
   newGame(selectedChar);
   hide('gameover');
   show('start');
-  cursorChar = null; // annonce aussi le personnage déjà sélectionné à l'ouverture
-  selectChar(selectedChar);
+  lastSpoken = null; // à l'ouverture, pas d'annonce : seul le survol fait parler
+  selectChar(selectedChar, false);
   fitCharSelect();
 }
 
@@ -376,8 +378,9 @@ function buildCharSelect() {
   });
 }
 
-function selectChar(id) {
-  if (id !== cursorChar) Sfx.sayName(id, CHARACTERS[id].name); // une voix annonce le personnage survolé
+let lastSpoken = null; // dernier prénom annoncé (évite de le répéter tant qu'on reste dessus)
+function selectChar(id, speak = true) {
+  if (speak && id !== lastSpoken) { lastSpoken = id; Sfx.sayName(id, CHARACTERS[id].name); } // une voix annonce le personnage survolé
   cursorChar = id;
   for (const b of document.querySelectorAll('.char')) b.classList.toggle('selected', b.dataset.id === id);
   renderCharInfo(id);
@@ -1224,8 +1227,13 @@ function update(dt) {
   // Armes
   for (const w of game.weapons) {
     const def = WEAPONS[w.id], np = game.projectiles.length, ne = game.effects.length;
+    const timerBefore = w.timer, dmgBefore = statOf(w.id).dmg;
     dmgSource = w.id;
     def.update(w, dt, def.stats(w.level));
+    // Son de l'arme : quand elle tire (recharge relancée ou nouveaux projectiles / coups) ;
+    // le café et les post-it (sans tir) sonnent quand ils touchent ; la couche sonne à l'impact
+    const fired = w.timer > timerBefore || game.projectiles.length > np || game.effects.length > ne;
+    if (SOUND_ON_HIT.has(w.id) ? statOf(w.id).dmg > dmgBefore : fired && w.id !== 'diaper') Sfx.weapon(w.id);
     // Ce que l'arme vient de créer prend son niveau (effet visuel) et son nom (statistiques)
     for (let i = np; i < game.projectiles.length; i++) Object.assign(game.projectiles[i], { lvl: visualLevel(w), src: w.id });
     for (let i = ne; i < game.effects.length; i++) game.effects[i].lvl = visualLevel(w);
@@ -1457,8 +1465,21 @@ function closeChest() {
 function show(id) { document.getElementById(id).classList.remove('hidden'); }
 function hide(id) { document.getElementById(id).classList.add('hidden'); }
 
+// Boutons Musique / Effets du menu pause
+function renderSoundButtons() {
+  const set = (id, on, text) => {
+    const b = document.getElementById(id);
+    b.textContent = text;
+    b.classList.toggle('off', !on);
+  };
+  set('musicBtn', Sfx.musicOn, `🎵 Musique : ${Sfx.musicOn ? 'activée' : 'coupée'}`);
+  set('sfxBtn', Sfx.sfxOn, `🔊 Effets : ${Sfx.sfxOn ? 'activés' : 'coupés'}`);
+}
+document.getElementById('musicBtn').onclick = () => { Sfx.toggleMusic(); renderSoundButtons(); };
+document.getElementById('sfxBtn').onclick = () => { Sfx.toggleSfx(); renderSoundButtons(); };
+
 function togglePause() {
-  if (game.state === 'play') { game.state = 'pause'; show('pause'); }
+  if (game.state === 'play') { game.state = 'pause'; renderSoundButtons(); show('pause'); }
   else if (game.state === 'pause') { game.state = 'play'; hide('pause'); }
 }
 

@@ -344,7 +344,7 @@ const WEAPONS = {
       for (let i = 0; i < count; i++) {
         thrown = lobAtRandom(450, {
           speed: st.speed, dmg: st.dmg, r: 10 * big, size: big, sprite: 'diaper', // atterrit sur la cible
-          onEnd: pr => w.zones.push({ x: pr.x, y: pr.y, r: st.area * p.area * big, dmg: st.puddle, t: st.duration, tick: 0 }),
+          onEnd: pr => { w.zones.push({ x: pr.x, y: pr.y, r: st.area * p.area * big, dmg: st.puddle, t: st.duration, tick: 0 }); Sfx.weapon('diaper'); },
         }) || thrown;
       }
       if (thrown) w.timer = st.cd * p.cdMult * legendCd(w);

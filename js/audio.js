@@ -2,9 +2,26 @@
 // Le navigateur n'autorise le son qu'après une action du joueur : on démarre au premier clic / touche.
 const Sfx = (() => {
   const VOLUME = 0.25;
-  let ac = null, master = null, muted = false;
-  try { muted = localStorage.getItem('ds-muted') === '1'; } catch (e) { /* stockage indisponible */ }
+  const MUSIC_VOLUME = 0.05;
+  // muted (touche M) coupe tout ; musicOn / sfxOn se règlent séparément dans le menu pause
+  let ac = null, master = null, muted = false, musicOn = true, sfxOn = true, started = false;
+  const load = (key, def) => { try { const v = localStorage.getItem(key); return v === null ? def : v === '1'; } catch (e) { return def; } };
+  const save = (key, v) => { try { localStorage.setItem(key, v ? '1' : '0'); } catch (e) { /* stockage indisponible */ } };
+  muted = load('ds-muted', false);
+  musicOn = load('ds-music', true);
+  sfxOn = load('ds-sfx', true);
   const last = {};
+  const sfxSilent = () => muted || !sfxOn;
+
+  // Musique de fond en boucle (démarre au premier clic / touche, règle des navigateurs)
+  const music = new Audio('music/music.webm');
+  music.loop = true;
+  music.volume = MUSIC_VOLUME;
+  function updateMusic() {
+    if (started && musicOn && !muted) music.play().catch(() => {});
+    else music.pause();
+  }
+  const updateMaster = () => { if (master) master.gain.value = sfxSilent() ? 0 : VOLUME; };
 
   // Le contexte audio peut être créé avant toute action (il reste en pause), ce qui permet
   // de décoder les voix enregistrées dès le chargement ; on le relance au premier clic / touche
@@ -14,20 +31,21 @@ const Sfx = (() => {
       if (!AC) return null;
       ac = new AC();
       master = ac.createGain();
-      master.gain.value = muted ? 0 : VOLUME;
+      master.gain.value = sfxSilent() ? 0 : VOLUME;
       master.connect(ac.destination);
     }
     return ac;
   }
   function init() {
     if (getCtx() && ac.state === 'suspended') ac.resume();
+    if (!started) { started = true; updateMusic(); }
   }
   addEventListener('pointerdown', init);
   addEventListener('keydown', init);
 
   // Une note : fréquence, durée, forme d'onde, volume, glissando vers f2, décalage
   function tone(f, dur, type = 'square', vol = 0.5, f2 = null, delay = 0) {
-    if (!ac || ac.state !== 'running' || muted) return;
+    if (!ac || ac.state !== 'running' || sfxSilent()) return;
     const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
     o.type = type;
     o.frequency.setValueAtTime(f, t);
@@ -42,7 +60,7 @@ const Sfx = (() => {
 
   // Bruit blanc qui s'éteint (explosions)
   function noise(dur, vol = 0.5) {
-    if (!ac || ac.state !== 'running' || muted) return;
+    if (!ac || ac.state !== 'running' || sfxSilent()) return;
     const len = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const s = ac.createBufferSource(), g = ac.createGain();
@@ -52,6 +70,24 @@ const Sfx = (() => {
     g.connect(master);
     s.start();
   }
+
+  // Sons des armes : un par arme, discrets car fréquents (volume global WEAPON_VOLUME)
+  const WEAPON_VOLUME = 0.7;
+  const WEAPON_SOUNDS = {
+    train:    v => { tone(520, 0.1, 'square', 0.08 * v); tone(390, 0.14, 'square', 0.08 * v, null, 0.09); }, // tchou-tchou
+    gonogo:   v => { tone(880, 0.06, 'sine', 0.12 * v); tone(660, 0.08, 'sine', 0.12 * v, null, 0.06); },   // bip-bop
+    plane:    v => { noise(0.12, 0.06 * v); tone(900, 0.15, 'sine', 0.06 * v, 300); },                     // fiouuu
+    stapler:  v => { noise(0.03, 0.12 * v); tone(1800, 0.03, 'square', 0.04 * v); },                        // clac
+    cable:    v => { tone(1400, 0.08, 'sawtooth', 0.08 * v, 180); noise(0.05, 0.08 * v); },                // claquement de fouet
+    keyboard: v => { for (let i = 0; i < 3; i++) tone(2400 + i * 200, 0.02, 'square', 0.05 * v, null, i * 0.04); }, // tac-tac-tac
+    laugh:    v => { for (let i = 0; i < 2; i++) tone(420 - i * 30, 0.07, 'sawtooth', 0.07 * v, 300, i * 0.11); }, // ha-ha
+    coffee:   v => { tone(260, 0.08, 'sine', 0.08 * v, 520); },                                             // bloup
+    diaper:   v => { noise(0.12, 0.1 * v); tone(160, 0.12, 'sine', 0.14 * v, 55); },                         // splotch (à l'impact)
+    database: v => { tone(220, 0.08, 'square', 0.05 * v); tone(440, 0.05, 'square', 0.05 * v, null, 0.05); }, // bzzt numérique
+    ai:       v => { tone(600, 0.12, 'triangle', 0.08 * v, 1400); },                                        // piou futuriste
+    beer:     v => { tone(2000, 0.08, 'sine', 0.07 * v); tone(2600, 0.1, 'sine', 0.05 * v, null, 0.02); },   // tchin
+    postit:   v => { noise(0.04, 0.07 * v); tone(1000, 0.04, 'triangle', 0.05 * v, 600); },                 // froufrou de papier
+  };
 
   const notes = (list, type, step, vol) => list.forEach((f, i) => tone(f, step * 1.6, type, vol, null, i * step));
   // Évite la cacophonie : un même son au plus toutes les `ms` millisecondes
@@ -126,23 +162,28 @@ const Sfx = (() => {
 
   // Charge voices/<id>.<ext> et le décode ; si fetch est impossible (page ouverte en fichier local),
   // on se rabat sur un simple lecteur audio, sans effet
+  // Renvoie une promesse résolue quand le chargement est terminé (réussi ou non)
   async function preloadVoice(id, i = 0) {
     if (i >= VOICE_EXTS.length) { voiceClips[id] = null; return; }
     const url = `voices/${id}.${VOICE_EXTS[i]}`;
     try {
       const res = await fetch(url);
-      if (!res.ok) { preloadVoice(id, i + 1); return; }
+      if (!res.ok) return preloadVoice(id, i + 1);
       voiceBuffers[id] = await getCtx().decodeAudioData(await res.arrayBuffer());
     } catch (e) {
-      if (location.protocol !== 'file:') { preloadVoice(id, i + 1); return; } // fichier illisible : on essaie le format suivant
-      const clip = new Audio();
-      clip.preload = 'auto';
-      clip.volume = VOICE_VOLUME;
-      clip.oncanplaythrough = () => { voiceClips[id] = clip; clip.oncanplaythrough = null; };
-      clip.onerror = () => preloadVoice(id, i + 1);
-      clip.src = url;
+      if (location.protocol !== 'file:') return preloadVoice(id, i + 1); // fichier illisible : on essaie le format suivant
+      await new Promise(resolve => {
+        const clip = new Audio();
+        clip.preload = 'auto';
+        clip.volume = VOICE_VOLUME;
+        clip.oncanplaythrough = () => { voiceClips[id] = clip; clip.oncanplaythrough = null; resolve(); };
+        clip.onerror = () => preloadVoice(id, i + 1).then(resolve);
+        clip.src = url;
+      });
     }
   }
+  const voiceReady = {}; // id -> promesse de fin de chargement
+  let voiceRequest = 0;  // numéro de la dernière annonce demandée (les plus anciennes sont abandonnées)
 
   function stopVoice() {
     if (voiceClip) voiceClip.pause();
@@ -152,10 +193,20 @@ const Sfx = (() => {
 
   return {
     get muted() { return muted; },
+    get musicOn() { return musicOn; },
+    get sfxOn() { return sfxOn; },
+    toggleMusic() { musicOn = !musicOn; save('ds-music', musicOn); updateMusic(); },
+    toggleSfx() { sfxOn = !sfxOn; save('ds-sfx', sfxOn); updateMaster(); if (!sfxOn) stopVoice(); },
     // Annonce le prénom d'un personnage : sa voix enregistrée si elle existe, sinon la synthèse vocale
-    sayName(id, name) {
-      if (muted) return;
+    // Attend si besoin la fin du chargement de l'enregistrement et le réveil de l'audio (premier clic),
+    // pour ne pas basculer sur la voix de synthèse par erreur
+    async sayName(id, name) {
+      if (sfxSilent()) return;
       stopVoice();
+      const request = ++voiceRequest;
+      await voiceReady[id];
+      if (ac && ac.state !== 'running') await ac.resume().catch(() => {});
+      if (request !== voiceRequest || sfxSilent()) return; // un autre personnage a été survolé entre-temps
       const buf = voiceBuffers[id];
       if (buf && ac && ac.state === 'running') {
         // Voix enregistrée avec l'effet FATALITY
@@ -167,15 +218,15 @@ const Sfx = (() => {
         return;
       }
       const clip = voiceClips[id];
-      if (!clip) { this.say(name); return; } // pas (encore) d'enregistrement : voix de synthèse
+      if (!clip) { this.say(name); return; } // aucun enregistrement : voix de synthèse
       voiceClip = clip;
       clip.currentTime = 0;
       clip.play().catch(() => this.say(name));
     },
-    preloadVoices(ids) { for (const id of ids) preloadVoice(id); },
+    preloadVoices(ids) { for (const id of ids) voiceReady[id] = preloadVoice(id); },
     // Annonce un texte à voix haute (coupe l'annonce précédente)
     say(text) {
-      if (!speech || muted) return;
+      if (!speech || sfxSilent()) return;
       speech.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'fr-FR';
@@ -186,11 +237,14 @@ const Sfx = (() => {
       speech.speak(u);
     },
     toggle() {
-      muted = !muted;
-      try { localStorage.setItem('ds-muted', muted ? '1' : '0'); } catch (e) { /* stockage indisponible */ }
-      if (master) master.gain.value = muted ? 0 : VOLUME;
+      muted = !muted; // touche M : coupe / remet tout (musique et effets)
+      save('ds-muted', muted);
+      updateMaster();
+      updateMusic();
       if (muted) stopVoice();
     },
+    // Son d'une arme (au plus toutes les 110 ms par arme)
+    weapon(id) { if (WEAPON_SOUNDS[id] && ready('w_' + id, 110)) WEAPON_SOUNDS[id](WEAPON_VOLUME); },
     kill() { if (ready('kill', 60)) tone(500 + Math.random() * 200, 0.08, 'square', 0.12, 180); },
     gem() { if (ready('gem', 50)) tone(1200 + Math.random() * 300, 0.05, 'sine', 0.1); },
     hurt() { if (ready('hurt', 200)) tone(160, 0.2, 'sawtooth', 0.3, 60); },
