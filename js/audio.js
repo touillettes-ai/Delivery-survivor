@@ -261,6 +261,7 @@ const Sfx = (() => {
     specialReady() { notes([784, 1175], 'triangle', 0.1, 0.3); },
     whistle() { tone(2200, 0.25, 'sine', 0.3, 2400); tone(2400, 0.5, 'sine', 0.3, 2100, 0.3); },
     impact() { if (ready('impact', 70)) { noise(0.12, 0.25); tone(200, 0.12, 'sine', 0.3, 60); } },
+    serverHit() { if (ready('server', 250)) { tone(180, 0.15, 'square', 0.12, 90); noise(0.08, 0.1); } },
     shout() { tone(300, 1.2, 'sawtooth', 0.3, 120); },
     win() { notes([523, 659, 784, 1047, 784, 1047], 'square', 0.12, 0.18); },
     lose() { notes([392, 330, 262, 196], 'triangle', 0.18, 0.3); },

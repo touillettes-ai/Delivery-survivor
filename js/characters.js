@@ -7,6 +7,13 @@
 // barrage (projectiles sur chaque ennemi), train (gros train), laugh (fou rire général), shout (cri)
 const TEAMS = ['Management', 'Support', 'Opérationnel', 'Agilité', 'Process'];
 
+// Annonces vocales du jeu (enregistrables dans le studio recorder.html : voices/<key>.webm)
+const ANNOUNCES = [
+  { key: 'boss',      label: "Arrivée d'un directeur", text: 'Un directeur arrive !' },
+  { key: 'fatality',  label: "Mort d'un directeur",    text: 'Fatality !' },
+  { key: 'legendary', label: 'Arme légendaire',        text: 'Arme légendaire !' },
+];
+
 // Super pouvoir partagé par les deux Delivery Managers
 const SPECIAL_MEP = { name: 'Pluie de MEP', icon: '📋', desc: 'Une pluie de demandes de mise en production tombe du ciel sur les ennemis.', type: 'rain', sprite: 'request' };
 

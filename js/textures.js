@@ -966,3 +966,60 @@ Sprites.allies = [
   charSet(ALLY_ROWS, allyPal('#1a1a1a', '#e0a020', '#d03030')),
   charSet(ALLY_ROWS, allyPal('#888888', '#2a2a3a', '#2f6fd0')), // le collier bleu
 ];
+
+// ---- Niveau 3 « MEP du vendredi » : salle serveur ----
+// Faux plancher technique : dalles grises, certaines perforées (ventilation)
+function makeDatacenterFloor() {
+  const N = 128, S = 2, T = 32;
+  const rnd = mulberry32(2024);
+  return makeCanvas(N * S, N * S, g => {
+    const px = (x, y, c) => { g.fillStyle = c; g.fillRect(x * S, y * S, S, S); };
+    for (let ty = 0; ty < N / T; ty++)
+      for (let tx = 0; tx < N / T; tx++) {
+        const vented = rnd() < 0.3;
+        for (let y = 0; y < T; y++)
+          for (let x = 0; x < T; x++) {
+            let c = (x + y) % 7 === 0 ? '#5c6672' : '#626c78';
+            if (vented && x > 3 && x < T - 4 && y > 3 && y < T - 4 && x % 3 === 0 && y % 3 === 0) c = '#2a3038';
+            if (x === 0 || y === 0) c = '#3a424c';
+            if (x === 1 || y === 1) c = '#76808c';
+            px(tx * T + x, ty * T + y, c);
+          }
+      }
+  });
+}
+
+// Baie de serveurs (LED dessinées en direct dans le jeu) et climatiseur de salle
+Object.assign(PROP_IMAGES, {
+  rack: makeCanvas(44, 76, g => {
+    drawRects(g, [[2, 2, 40, 72, '#16191e'], [2, 2, 40, 3, '#3a404a'], [4, 6, 36, 64, '#22262e']]);
+    for (let i = 0; i < 9; i++) drawRects(g, [[6, 8 + i * 7, 32, 5, '#2e333c'], [6, 8 + i * 7, 32, 1, '#3e444e'], [30, 10 + i * 7, 2, 2, i % 3 ? '#40e070' : '#40a0ff']]);
+    drawRects(g, [[2, 70, 40, 4, '#0c0e12']]);
+  }),
+  crac: makeCanvas(56, 50, g => {
+    drawRects(g, [[2, 4, 52, 44, '#d8dce2'], [2, 4, 52, 3, '#f0f2f4'], [6, 12, 20, 20, '#9aa0aa'], [30, 12, 20, 20, '#9aa0aa'], [2, 44, 52, 4, '#8a8e96']]);
+    for (const cx of [16, 40]) { g.strokeStyle = '#5a606a'; g.lineWidth = 2; g.beginPath(); g.arc(cx, 22, 7, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(cx - 7, 22); g.lineTo(cx + 7, 22); g.moveTo(cx, 15); g.lineTo(cx, 29); g.stroke(); }
+    drawRects(g, [[8, 36, 10, 4, '#40c060']]);
+  }),
+});
+Object.assign(PROPS, {
+  rack: { img: PROP_IMAGES.rack, w: 40, h: 22, top: 50 },
+  crac: { img: PROP_IMAGES.crac, w: 52, h: 18, top: 28 },
+});
+Textures.datacenter = makeDatacenterFloor();
+
+// ---- Nouveaux ennemis et directeurs ----
+// Consultant : costume beige, cravate verte, reste à distance et lance des PowerPoint
+Sprites.consultant = enemySet([pixelSprite(MANAGER_ROWS, { h: '#d8b060', s: '#f0c8a0', b: '#5a4020', e: '#111', m: '#a04040', J: '#a89878', W: '#fff', t: '#2a9a50', k: '#3a2a1a' })]);
+// Directeurs : même silhouette, costume et cravate selon le poste
+const dirPal = (hair, suit, tie) => ({ ...DIRECTOR_PAL, g: hair, J: suit, t: tie });
+Object.assign(Sprites, {
+  dir_dsi: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#2a2a2a', '#1a2a5a', '#30c0e0'))]),
+  dir_drh: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#6a4020', '#5a1a2a', '#f070a0'))]),
+  dir_daf: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#a8a8a8', '#3a3a3a', '#e0b020'))]),
+  dir_pdg: enemySet([pixelSprite(DIRECTOR_ROWS, dirPal('#f0f0f0', '#0a0a0a', '#ffd040'))]),
+});
+// Diapo PowerPoint lancée par les consultants
+Textures.ppt = makeCanvas(18, 14, g => {
+  drawRects(g, [[0, 0, 18, 14, '#c8501e'], [1, 4, 16, 9, '#fafafa'], [3, 6, 8, 1, '#888'], [3, 8, 11, 1, '#888'], [3, 10, 6, 1, '#888'], [12, 6, 4, 4, '#e0a020']]);
+});

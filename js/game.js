@@ -5,20 +5,33 @@ const DEMO_MODE = false; // Mode démo : chaque personnage démarre avec son arm
 const XP_FACTOR = 0.95; // XP nécessaire pour monter de niveau (0.95 = -5%)
 
 // Les collègues qui veulent "juste 5 minutes" de ton temps (flying : ignore le mobilier)
+// ai : comportement (voir enemyBehavior) — charge : fonce en ligne droite, ranged : reste à distance et tire,
+// healer : soigne les collègues autour, rally : accélère les collègues autour (deadline !)
 const ENEMIES = {
   intern:     { hp: 5,  speed: 100, dmg: 5,  r: 12, xp: 1,  color: '#40a060' },
   coworker:   { hp: 16, speed: 55,  dmg: 8,  r: 14, xp: 2,  color: '#d8dce4' },
-  commercial: { hp: 22, speed: 95,  dmg: 10, r: 14, xp: 3,  color: '#4a6a9a' },
-  manager:    { hp: 28, speed: 80,  dmg: 12, r: 14, xp: 4,  color: '#2a2a3a' },
-  rh:         { hp: 45, speed: 50,  dmg: 14, r: 14, xp: 5,  color: '#e07090' },
+  commercial: { hp: 22, speed: 95,  dmg: 10, r: 14, xp: 3,  color: '#4a6a9a', ai: 'charge' },
+  consultant: { hp: 20, speed: 70,  dmg: 8,  r: 14, xp: 4,  color: '#a89878', ai: 'ranged' },
+  manager:    { hp: 28, speed: 80,  dmg: 12, r: 14, xp: 4,  color: '#2a2a3a', ai: 'rally' },
+  rh:         { hp: 45, speed: 50,  dmg: 14, r: 14, xp: 5,  color: '#e07090', ai: 'healer' },
   director:   { hp: 0,  speed: 60,  dmg: 25, r: 30, xp: 50, color: '#1a1a2a', name: 'Directeur' }, // boss, PV calculés à l'apparition
 };
+
+// Les directeurs, dans l'ordre d'arrivée (puis on recommence) : chacun a sa spécialité
+const BOSS_TYPES = {
+  dsi: { name: 'DSI', sprite: 'dir_dsi', ai: ['ring'],                      hpMult: 1 },   // salves de tickets en cercle
+  drh: { name: 'DRH', sprite: 'dir_drh', ai: ['summon'],                    hpMult: 1 },   // appelle des stagiaires en renfort
+  daf: { name: 'DAF', sprite: 'dir_daf', ai: ['charge'],                    hpMult: 1.2 }, // charge comme un taureau
+  pdg: { name: 'PDG', sprite: 'dir_pdg', ai: ['ring', 'summon', 'charge'],  hpMult: 1.8 }, // un peu de tout
+};
+const BOSS_ORDER = ['dsi', 'drh', 'daf', 'pdg'];
 
 // Qui arrive à partir de quand (secondes) et avec quel poids
 const SPAWN_TABLE = [
   { type: 'intern',     from: 0,   w: 3 },
   { type: 'coworker',   from: 30,  w: 3 },
   { type: 'commercial', from: 90,  w: 2 },
+  { type: 'consultant', from: 120, w: 1.5 },
   { type: 'manager',    from: 150, w: 2 },
   { type: 'rh',         from: 240, w: 1.5 },
 ];
@@ -81,7 +94,19 @@ const LEVELS = {
     floor: 'parquet', props: [['patio', 0.3], ['sofa', 0.15], ['plant', 0.2], ['cooler', 0.08]],
     goal: true,
   },
+  mep: {
+    icon: '🖥️', name: 'MEP du vendredi',
+    desc: "Vendredi 17h00 : protège le serveur de prod jusqu'à 18h00 (5 minutes). Les collègues veulent tout casser ; les tickets ramassés réparent le serveur. XP ×2,5 !",
+    floor: 'datacenter', props: [['rack', 0.45], ['crac', 0.12], ['plant', 0.05]],
+    server: true, duration: 300, hours: [17, 18],
+    xpMult: 2.5, // niveau 2 fois plus court : on gagne bien plus d'XP pour monter aussi haut
+  },
 };
+// Niveau 3 : le serveur de prod à défendre
+const SERVER_HP = 900;
+const SERVER_TARGET_CHANCE = 0.5; // part des ennemis qui foncent sur le serveur plutôt que sur toi
+const SERVER_REPAIR = 0.1;        // un ticket ramassé répare 10% du serveur
+const levelDuration = () => LEVELS[game.level].duration || GAME_DURATION;
 const PI_DISTANCE = 8000;    // distance entre le départ et la porte de la salle PI
 const BADGE_DISTANCE = 4000; // distance entre le départ et le badge (sur le côté)
 const PI_ROOM_W = 640, PI_ROOM_H = 480, PI_WALL = 16, PI_DOOR = 140;
@@ -133,6 +158,7 @@ resize();
 const floorPatterns = {
   floor: ctx.createPattern(Textures.floor, 'repeat'),
   parquet: ctx.createPattern(Textures.parquet, 'repeat'),
+  datacenter: ctx.createPattern(Textures.datacenter, 'repeat'),
 };
 
 let game;
@@ -237,9 +263,11 @@ function newGame(charId, levelId = selectedLevel) {
     spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, bossKills: 0, legendBossT: LEGEND_BOSS_DELAY, banner: null,
     eventT: FIRST_EVENT, event: null, ticketT: TICKET_EVERY[0], stats: {},
     specialCd: 0, special: null, // super pouvoir prêt dès le début
+    enemyShots: [], bossCount: 0, fatality: 0,
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
   if (LEVELS[levelId].goal) createPiRoom();
+  if (LEVELS[levelId].server) createServer();
   const ch = CHARACTERS[charId];
   if (ch.follower) game.follower = { x: -30, y: 0, r: 10, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '', target: null, dashT: 0, dashTimer: 6, mode: 'follow', awayT: 0 };
   if (ch.apply) ch.apply(game.player);
@@ -623,6 +651,7 @@ function activateSpecial() {
   game.specialCd = SPECIAL_COOLDOWN;
   game.banner = { text: `${sp.icon} ${sp.name} !`, t: 2.5 };
   Sfx.special();
+  Sfx.sayName('special_' + p.charId, sp.name);
   if (s.type === 'squad') {
     // Les renforts arrivent depuis les bords de l'écran
     Sprites.allies.forEach((spr, i) => {
@@ -898,6 +927,117 @@ function pushOutOfRect(o, left, top, right, bottom) {
   }
 }
 
+// ---- Niveau 3 : le serveur de prod (3 baies) à défendre, juste au-dessus du point de départ ----
+function createServer() {
+  const w = 132, h = 22, x = 0, y = -90;
+  game.server = { x, y, w, h, hp: SERVER_HP, maxHp: SERVER_HP, flash: 0 };
+  game.walls = [{ x: x - w / 2, y: y - h / 2, w, h }];
+}
+
+function damageServer(dmg) {
+  const s = game.server;
+  if (!s || s.hp <= 0) return;
+  s.hp -= dmg;
+  s.flash = 0.15;
+  Sfx.serverHit();
+  if (s.hp <= 0) { s.hp = 0; game.serverDown = true; endGame(false); }
+}
+
+// Un ennemi tire un projectile (diapo PowerPoint, ticket du DSI…) vers un angle donné
+function enemyShoot(e, angle, speed, sprite, dmg) {
+  game.enemyShots.push({ x: e.x, y: e.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 3, dmg, sprite, r: 9, dead: false });
+}
+
+function spawnEnemyAt(type, x, y) {
+  if (game.enemies.length >= MAX_ENEMIES) return;
+  spawnEnemy(type);
+  const e = game.enemies[game.enemies.length - 1];
+  e.x = x;
+  e.y = y;
+}
+
+// Fait apparaître le directeur suivant (DSI, DRH, DAF, PDG, puis on recommence)
+function spawnBoss(text) {
+  const kind = BOSS_ORDER[game.bossCount++ % BOSS_ORDER.length], bt = BOSS_TYPES[kind];
+  spawnEnemy('director', 'boss');
+  const e = game.enemies[game.enemies.length - 1];
+  Object.assign(e, { kind, name: bt.name, sprite: bt.sprite, hp: e.hp * bt.hpMult, maxHp: e.maxHp * bt.hpMult });
+  Sfx.boss();
+  Sfx.sayName('boss', 'Un directeur arrive !');
+  game.banner = { text: text.replace('{name}', bt.name), t: 3 };
+}
+
+// Comportements particuliers ; renvoie la vitesse à appliquer, ou null pour la poursuite normale
+function enemyBehavior(e, dt, dx, dy, dist, spd) {
+  if (e.stun > 0) return null;
+  const abilities = e.boss ? BOSS_TYPES[e.kind].ai : ENEMIES[e.type].ai ? [ENEMIES[e.type].ai] : [];
+  let move = null;
+  for (const ai of abilities) {
+    if (ai === 'charge') {
+      // Prend son élan (« ! » au-dessus de la tête), puis fonce tout droit là où tu étais
+      if (e.windup > 0) {
+        if ((e.windup -= dt) <= 0) { e.dashT = 0.7; e.dashVx = dx / dist * spd * 3.5; e.dashVy = dy / dist * spd * 3.5; }
+        move = { vx: 0, vy: 0 };
+      } else if (e.dashT > 0) {
+        e.dashT -= dt;
+        move = { vx: e.dashVx, vy: e.dashVy };
+      } else if ((e.chargeCd = (e.chargeCd ?? 1.5 + Math.random() * 2) - dt) <= 0 && dist < 450) {
+        e.chargeCd = (e.boss ? 3.5 : 3) + Math.random() * 2;
+        e.windup = 0.5;
+        move = { vx: 0, vy: 0 };
+      }
+    } else if (ai === 'ranged') {
+      // Garde ses distances, tourne autour de toi et lance des PowerPoint
+      if ((e.shotCd = (e.shotCd ?? 1 + Math.random() * 1.5) - dt) <= 0 && dist < 420) {
+        e.shotCd = 2.6;
+        enemyShoot(e, Math.atan2(dy, dx), 240, 'ppt', e.dmg);
+      }
+      e.side = e.side || (Math.random() < 0.5 ? 1 : -1);
+      const k = dist < 190 ? -1 : dist > 260 ? 1 : 0;
+      move = k ? { vx: dx / dist * spd * k, vy: dy / dist * spd * k } : { vx: -dy / dist * spd * 0.6 * e.side, vy: dx / dist * spd * 0.6 * e.side };
+    } else if (ai === 'healer') {
+      // Soigne les collègues autour d'elle
+      if ((e.healCd = (e.healCd ?? 2 + Math.random() * 2) - dt) <= 0) {
+        e.healCd = 3;
+        let healed = false;
+        queryEnemies(e.x, e.y, 150, o => {
+          if (o.dead || o.prop || o === e || o.hp >= o.maxHp || Math.hypot(o.x - e.x, o.y - e.y) > 130) return;
+          o.hp = Math.min(o.maxHp, o.hp + o.maxHp * 0.25);
+          healed = true;
+          if (game.texts.length < 150) game.texts.push({ x: o.x, y: o.y - o.r - 4, text: '+', t: 0, life: 0.6, color: '#6f6' });
+        });
+        if (healed) game.effects.push({ type: 'aura', x: e.x, y: e.y, r: 130, color: '#60e070', t: 0, life: 0.5 });
+      }
+    } else if (ai === 'rally') {
+      // Deadline ! Les collègues autour accélèrent
+      if ((e.rallyCd = (e.rallyCd ?? 2 + Math.random() * 3) - dt) <= 0) {
+        e.rallyCd = 4;
+        queryEnemies(e.x, e.y, 170, o => { if (!o.dead && !o.prop && !o.boss && Math.hypot(o.x - e.x, o.y - e.y) < 150) o.rally = 2.5; });
+        game.effects.push({ type: 'aura', x: e.x, y: e.y, r: 150, color: '#ff9a30', t: 0, life: 0.5 });
+        if (game.texts.length < 150) game.texts.push({ x: e.x, y: e.y - e.r - 8, text: '⏰ Deadline !', t: 0, life: 1, color: '#ffb060' });
+      }
+    } else if (ai === 'ring') {
+      // DSI : salve de tickets tout autour
+      if ((e.ringCd = (e.ringCd ?? 2) - dt) <= 0) {
+        e.ringCd = 3;
+        const a0 = Math.random() * Math.PI * 2;
+        for (let i = 0; i < 12; i++) enemyShoot(e, a0 + i * Math.PI / 6, 190, 'ticket', 12);
+      }
+    } else if (ai === 'summon') {
+      // DRH : appelle 4 stagiaires en renfort
+      if ((e.summonCd = (e.summonCd ?? 3) - dt) <= 0) {
+        e.summonCd = 5;
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2 + Math.random() * 0.5;
+          spawnEnemyAt('intern', e.x + Math.cos(a) * 60, e.y + Math.sin(a) * 60);
+        }
+        game.effects.push({ type: 'aura', x: e.x, y: e.y, r: 90, color: '#f070a0', t: 0, life: 0.5 });
+      }
+    }
+  }
+  return move;
+}
+
 // ---- Ennemis ----
 function pickEnemyType() {
   const pool = SPAWN_TABLE.filter(s => game.time >= s.from);
@@ -920,6 +1060,7 @@ function spawnEnemy(type = pickEnemyType(), rank = 'normal') {
     r: boss ? def.r : def.r * scale, scale, xp: elite ? 25 : def.xp, elite, boss, name: def.name,
     color: def.color, flying: !!def.flying,
     flash: 0, kx: 0, ky: 0, hitT: {}, phase: Math.random() * 10, dead: false,
+    toServer: !!game.server && rank === 'normal' && Math.random() < SERVER_TARGET_CHANCE,
   });
 }
 
@@ -946,7 +1087,8 @@ function killEnemy(e) {
   if (e.elite || Math.random() < 0.004) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'croissant' });
   if (e.boss) {
     game.bossKills++;
-    Sfx.chest();
+    game.fatality = 2.2;
+    Sfx.sayName('fatality', 'Fatality !');
     game.pickups.push({ x: e.x, y: e.y, kind: 'chest' });
     game.banner = { text: `${e.name} vaincu ! Récupère son coffre`, t: 3 };
     game.shake = 12;
@@ -986,7 +1128,7 @@ function damagePlayer(dmg) {
 
 function gainXp(v) {
   const p = game.player;
-  p.xp += v * p.xpMult * (eventActive('bonus') ? 2 : 1);
+  p.xp += v * p.xpMult * (eventActive('bonus') ? 2 : 1) * (LEVELS[game.level].xpMult || 1);
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
@@ -1000,7 +1142,7 @@ function gainXp(v) {
 function update(dt) {
   game.time += dt;
   const p = game.player;
-  if (game.time >= GAME_DURATION) { endGame(!game.goal); return; } // niveau 2 : à 18h00 la PI est finie
+  if (game.time >= levelDuration()) { endGame(!game.goal); return; } // niveau 2 : à 18h00 la PI est finie
   if (game.goal) {
     const g = game.goal;
     if ((g.talkT -= dt) <= 0) { // les orateurs parlent à tour de rôle
@@ -1149,9 +1291,7 @@ function update(dt) {
   if (game.eliteTimer <= 0) { game.eliteTimer = 60; spawnEnemy(pickEnemyType(), 'elite'); }
   if (game.bossIndex < BOSS_TIMES.length && game.time >= BOSS_TIMES[game.bossIndex]) {
     game.bossIndex++;
-    spawnEnemy('director', 'boss');
-    Sfx.boss();
-    game.banner = { text: '⚠ Un directeur arrive !', t: 3 };
+    spawnBoss('⚠ Le {name} arrive !');
   }
   // Événements aléatoires et tickets au sol
   if (game.event && (game.event.t -= dt) <= 0) game.event = null;
@@ -1169,9 +1309,7 @@ function update(dt) {
   if (waitingLegend && !game.enemies.some(e => e.boss) && !game.pickups.some(pk => pk.kind === 'chest')) {
     if ((game.legendBossT -= dt) <= 0) {
       game.legendBossT = LEGEND_BOSS_DELAY;
-      spawnEnemy('director', 'boss');
-      Sfx.boss();
-      game.banner = { text: '⚠ Un directeur veut voir ton arme de plus près !', t: 3 };
+      spawnBoss('⚠ Le {name} veut voir ton arme de plus près !');
     }
   } else game.legendBossT = LEGEND_BOSS_DELAY;
 
@@ -1193,9 +1331,24 @@ function update(dt) {
       if (dist > CHUNK * 4) { e.dead = true; e.prop.entity = null; }
       continue;
     }
-    const spd = e.slow > 0 ? e.speed * 0.5 : e.speed; // éméché par l'apéro : moitié moins vite
+    let spd = e.slow > 0 ? e.speed * 0.5 : e.speed; // éméché par l'apéro : moitié moins vite
     if (e.slow > 0) e.slow -= dt;
-    let vx = dx / dist * spd, vy = dy / dist * spd;
+    if (e.rally > 0) { e.rally -= dt; spd *= 1.5; } // deadline d'un manager : plus rapide
+    // Cible : toi, ou le serveur de prod (niveau 3)
+    let tx = dx, ty = dy, td = dist;
+    const srv = e.toServer && game.server;
+    if (srv) { tx = srv.x - e.x; ty = srv.y - e.y; td = Math.hypot(tx, ty) || 1; }
+    let vx = tx / td * spd, vy = ty / td * spd;
+    const mv = srv ? null : enemyBehavior(e, dt, dx, dy, dist, spd);
+    if (mv) { vx = mv.vx; vy = mv.vy; }
+    if (srv) {
+      // Collé au serveur : il tape dessus une fois par seconde
+      const nx = Math.max(srv.x - srv.w / 2, Math.min(e.x, srv.x + srv.w / 2)), ny = Math.max(srv.y - srv.h / 2, Math.min(e.y, srv.y + srv.h / 2));
+      if (Math.hypot(e.x - nx, e.y - ny) < e.r + 6) {
+        vx = vy = 0;
+        if ((e.srvCd = (e.srvCd ?? 0) - dt) <= 0 && !(e.stun > 0)) { e.srvCd = 1; damageServer(e.dmg); }
+      }
+    }
     if (e.stun > 0) { e.stun -= dt; vx = vy = 0; } // NO GO : immobilisé
     let sx = 0, sy = 0;
     queryEnemies(e.x, e.y, e.r * 2, o => {
@@ -1284,6 +1437,20 @@ function update(dt) {
   }
   dmgSource = null;
 
+  // Projectiles des ennemis (PowerPoint, tickets du DSI)
+  for (const sh of game.enemyShots) {
+    sh.x += sh.vx * dt;
+    sh.y += sh.vy * dt;
+    if ((sh.life -= dt) <= 0) sh.dead = true;
+    else if (Math.hypot(sh.x - p.x, sh.y - p.y) < sh.r + p.r) {
+      sh.dead = true;
+      if (p.invuln <= 0) damagePlayer(sh.dmg);
+    }
+  }
+  game.enemyShots = game.enemyShots.filter(sh => !sh.dead);
+  if (game.fatality > 0) game.fatality -= dt;
+  if (game.server && game.server.flash > 0) game.server.flash -= dt;
+
   // Gemmes d'XP
   for (const g of game.gems) {
     const dx = p.x - g.x, dy = p.y - g.y, dist = Math.hypot(dx, dy);
@@ -1312,6 +1479,10 @@ function update(dt) {
         Sfx.ticket();
         gainXp(Math.max(1, Math.round(p.xpNext * TICKET_XP)) / p.xpMult);
         game.texts.push({ x: p.x, y: p.y - 30, text: '🎫 Ticket résolu ! +XP', t: 0, life: 1.2, color: '#7fd8ff' });
+        if (game.server) {
+          game.server.hp = Math.min(game.server.maxHp, game.server.hp + game.server.maxHp * SERVER_REPAIR);
+          game.texts.push({ x: game.server.x, y: game.server.y - 60, text: '🔧 Serveur réparé', t: 0, life: 1.5, color: '#7fd8ff' });
+        }
       } else {
         Sfx.heal();
         const heal = pk.kind === 'bolt' ? BOLT_HEAL : 30;
@@ -1434,6 +1605,7 @@ function openChest() {
     weaponLevelFx(w);
     const d = WEAPONS[w.id];
     sub = 'Une de tes armes devient légendaire !';
+    Sfx.sayName('legendary', 'Arme légendaire !');
     game.banner = { text: '🔥 Arme légendaire : les collègues redoublent d\'efforts !', t: 3.5 }; // s'affiche à la reprise
     html = `<div class="reward legendary"><span class="icon">${d.icon}</span>
       <div><b>${d.name} ★</b><em>LÉGENDAIRE</em><p>${d.legend}</p></div></div>`;
@@ -1486,9 +1658,12 @@ function togglePause() {
 function endGame(won) {
   game.state = 'over';
   const name = CHARACTERS[game.player.charId].name, clock = officeClock(game.time);
-  const late = game.time >= GAME_DURATION;
+  const late = game.time >= levelDuration();
   let title, text;
-  if (game.goal) {
+  if (game.server) {
+    title = won ? 'MEP réussie !' : game.serverDown ? 'La MEP a planté !' : 'Burn-out !';
+    text = won ? `${name} a sauvé la mise en production. Bon week-end !` : game.serverDown ? `Le serveur de prod est tombé à <b>${clock}</b>.` : `${name} a craqué à <b>${clock}</b>, en pleine MEP.`;
+  } else if (game.goal) {
     title = won ? 'Salle PI atteinte !' : late ? '18h00 : la PI est finie !' : 'Burn-out !';
     text = won ? `${name} rejoint la salle PI à <b>${clock}</b>.` : late ? (game.hasBadge ? `${name} n'a jamais trouvé la salle PI.` : `${name} n'a jamais retrouvé son badge.`) : `${name} a craqué à <b>${clock}</b>, avant la PI.`;
   } else {
@@ -1535,9 +1710,10 @@ function formatTime(t) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// Heure de bureau : 0 → 9h00, GAME_DURATION → 18h00
+// Heure de bureau : début → fin du niveau (9h00 → 18h00, ou 17h00 → 18h00 pour la MEP)
 function officeClock(t) {
-  const m = 9 * 60 + Math.min(t, GAME_DURATION) / GAME_DURATION * 9 * 60;
+  const [h0, h1] = (game && LEVELS[game.level].hours) || [9, 18], d = levelDuration();
+  const m = h0 * 60 + Math.min(t, d) / d * (h1 - h0) * 60;
   return `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, '0')}`;
 }
 
@@ -1684,6 +1860,7 @@ function draw() {
   const list = [];
   for (const e of game.enemies) if (inView(e.x, e.y, 80)) list.push({ key: e.prop ? e.prop.y + e.prop.h / 2 : e.y + e.r, e });
   list.push({ key: p.y + p.r, e: p });
+  if (game.server) list.push({ key: game.server.y + game.server.h / 2, server: true });
   if (game.follower && game.follower.mode !== 'away') list.push({ key: game.follower.y + game.follower.r, e: game.follower });
   const cx0 = Math.floor((camX - 100) / CHUNK), cx1 = Math.floor((camX + W + 100) / CHUNK);
   const cy0 = Math.floor((camY - 100) / CHUNK), cy1 = Math.floor((camY + H + 100) / CHUNK);
@@ -1695,10 +1872,11 @@ function draw() {
 
   for (const it of list) {
     if (it.prop) { ctx.drawImage(it.prop.img, it.prop.drawX, it.prop.drawY); continue; }
+    if (it.server) { drawServer(game.server); continue; }
     const e = it.e;
     if (e === p) { drawPlayer(p); continue; }
     if (e === game.follower) { drawFollower(e); continue; }
-    const set = Sprites[e.type];
+    const set = Sprites[e.sprite || e.type];
     if (e.prop) {
       // Plante : tremble quand on la frappe
       const shake = e.flash > 0 ? Math.round((Math.random() - 0.5) * 4) : 0;
@@ -1732,10 +1910,31 @@ function draw() {
       }
       ctx.globalAlpha = 1;
     }
+    if (e.windup > 0) {
+      // Prend son élan avant de charger
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText('!', e.x, e.y - h / 2 - 6);
+      ctx.fillStyle = '#ff4040';
+      ctx.fillText('!', e.x, e.y - h / 2 - 6);
+    }
     if (e.stun > 0) {
       const s = Textures.nogo;
       ctx.drawImage(s, Math.round(e.x - s.width / 4), Math.round(e.y - h / 2 - 14), s.width / 2, s.height / 2);
     }
+  }
+
+  // Projectiles des ennemis (qui tournent sur eux-mêmes)
+  for (const sh of game.enemyShots) {
+    if (!inView(sh.x, sh.y)) continue;
+    const img = Textures[sh.sprite];
+    ctx.save();
+    ctx.translate(Math.round(sh.x), Math.round(sh.y));
+    ctx.rotate(game.time * 6);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    ctx.restore();
   }
 
   // Projectiles (orientés dans le sens du tir, sans finir la tête en bas)
@@ -1790,7 +1989,14 @@ function draw() {
     ctx.save();
     const glow = LEVEL_COLORS[ef.lvl];
     if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 4 + ef.lvl * 2; } // halo selon le niveau de l'arme
-    if (ef.type === 'blast') {
+    if (ef.type === 'aura') {
+      ctx.globalAlpha = (1 - k) * 0.7;
+      ctx.strokeStyle = ef.color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(ef.x, ef.y, ef.r * (0.5 + k * 0.5), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (ef.type === 'blast') {
       // Explosion d'imprimante : boule de feu + onde de choc
       ctx.globalAlpha = (1 - k) * 0.6;
       ctx.fillStyle = k < 0.3 ? '#ffe060' : '#ff7020';
@@ -1936,6 +2142,32 @@ function drawPlayer(p) {
   ctx.fillRect(Math.round(p.x - bw / 2), Math.round(by), bw, 4);
   ctx.fillStyle = '#e33';
   ctx.fillRect(Math.round(p.x - bw / 2), Math.round(by), Math.round(bw * p.hp / p.maxHp), 4);
+}
+
+// Le serveur de prod du niveau 3 : 3 baies côte à côte, LED animées
+function drawServer(sv) {
+  const img = PROP_IMAGES.rack, top = sv.y + sv.h / 2 - img.height;
+  for (let i = 0; i < 3; i++) {
+    const x = Math.round(sv.x - sv.w / 2 + i * 44);
+    ctx.drawImage(img, x, Math.round(top));
+    for (let j = 0; j < 9; j++) {
+      const on = Math.sin(game.time * (6 + j) + i * 3 + j) > 0;
+      ctx.fillStyle = sv.hp / sv.maxHp < 0.3 && on ? '#ff4040' : on ? '#60ff90' : '#1a3020';
+      ctx.fillRect(x + 10, top + 10 + j * 7, 2, 2);
+      ctx.fillRect(x + 14, top + 10 + j * 7, 2, 2);
+    }
+  }
+  if (sv.flash > 0) {
+    ctx.fillStyle = 'rgba(255,40,40,0.4)';
+    ctx.fillRect(sv.x - sv.w / 2, top, sv.w, img.height);
+  }
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#000';
+  ctx.strokeText('PROD', sv.x, top - 4);
+  ctx.fillStyle = '#40c0ff';
+  ctx.fillText('PROD', sv.x, top - 4);
 }
 
 // La salle PI : murs, écran, scène avec 2 orateurs et public assis (dessinée au sol, sous les personnages)
@@ -2220,9 +2452,45 @@ function drawHud() {
     ctx.globalAlpha = 1;
   }
 
-  // Flèche vers les coffres hors de l'écran
-  for (const pk of game.pickups) {
-    if (pk.kind !== 'chest') continue;
+  // Niveau 3 : barre de vie du serveur (sous celle du directeur)
+  if (game.server && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
+    const sv = game.server, bw = Math.min(300, W - 40), bx = (W - bw) / 2, by = boss ? 122 : 86;
+    ctx.fillStyle = '#102030';
+    ctx.fillRect(bx, by, bw, 10);
+    ctx.fillStyle = sv.hp / sv.maxHp > 0.3 ? '#40c0ff' : '#ff5040';
+    ctx.fillRect(bx, by, bw * sv.hp / sv.maxHp, 10);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, bw, 10);
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeText(`🖥️ SERVEUR DE PROD ${Math.ceil(sv.hp / sv.maxHp * 100)} %`, W / 2, by + 24);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`🖥️ SERVEUR DE PROD ${Math.ceil(sv.hp / sv.maxHp * 100)} %`, W / 2, by + 24);
+  }
+
+  // FATALITY à la mort d'un directeur
+  if (game.fatality > 0) {
+    const k = Math.min(1, (2.2 - game.fatality) * 4); // zoom d'apparition
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, game.fatality * 2);
+    ctx.translate(W / 2, H * 0.42);
+    ctx.scale(0.6 + k * 0.4, 0.6 + k * 0.4);
+    ctx.font = `bold ${Math.min(72, W / 9)}px Impact, 'Arial Black', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#000';
+    ctx.strokeText('FATALITY', 0, 0);
+    ctx.fillStyle = '#d01010';
+    ctx.fillText('FATALITY', 0, 0);
+    ctx.restore();
+  }
+
+  // Flèches vers les coffres (et le serveur) hors de l'écran
+  const edgeTargets = game.pickups.filter(pk => pk.kind === 'chest').map(pk => ({ x: pk.x, y: pk.y, color: '#f0c030' }));
+  if (game.server) edgeTargets.push({ x: game.server.x, y: game.server.y, color: '#40c0ff' });
+  for (const pk of edgeTargets) {
     const dx = pk.x - p.x, dy = pk.y - p.y;
     if (Math.abs(dx) < W / 2 - 20 && Math.abs(dy) < H / 2 - 20) continue;
     const a = Math.atan2(dy, dx);
@@ -2230,7 +2498,7 @@ function drawHud() {
     ctx.save();
     ctx.translate(W / 2 + Math.cos(a) * t, H / 2 + Math.sin(a) * t);
     ctx.rotate(a);
-    ctx.fillStyle = '#f0c030';
+    ctx.fillStyle = pk.color;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -2290,7 +2558,7 @@ document.getElementById('chestBtn').onclick = closeChest;
 document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
 buildLevelSelect();
-Sfx.preloadVoices(Object.keys(CHARACTERS));
+Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id)]);
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);

@@ -11,6 +11,7 @@
     h1 { margin: 0 0 6px; text-align: center; }
     .help { color: #9ab; font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
     .help b { color: #ffd866; }
+    h2 { font-size: 16px; color: #8fc4ea; margin: 18px 0 8px; }
     .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: #2a3a4c; margin-bottom: 6px; border: 2px solid transparent; }
     .row.rec { border-color: #e04040; background: #3a2a30; }
     .row.done .status { color: #96cd32; }
@@ -35,7 +36,7 @@
   <div class="panel">
     <h1>🎙️ Studio des voix</h1>
     <p class="help">
-      Clique sur <b>● Enregistrer</b>, dis le prénom, puis clique sur <b>■ Stop</b>. Écoute avec <b>▶</b> et recommence si besoin.<br>
+      Clique sur <b>● Enregistrer</b>, dis le texte indiqué, puis clique sur <b>■ Stop</b>. Écoute avec <b>▶</b> et recommence si besoin.<br>
       À la fin, clique sur <b>Télécharger tout</b> : les fichiers arrivent dans ton dossier Téléchargements (un fichier par personnage).
       Il faudra ensuite les placer dans le dossier <b>voices</b> du jeu.
     </p>
@@ -51,7 +52,14 @@
     <div id="msg"></div>
   </div>
 
-  <script src="js/characters.js"></script>
+  <script>
+    // Affiche toute erreur sur la page (diagnostic)
+    addEventListener('error', e => {
+      const m = document.getElementById('msg');
+      if (m) m.textContent = 'Erreur : ' + e.message + ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')';
+    });
+  </script>
+  <script src="js/characters.js?v=2"></script>
   <script>
     // Un enregistrement par personnage, gardé en mémoire jusqu'au téléchargement
     const clips = {};
@@ -59,19 +67,32 @@
     const msg = t => document.getElementById('msg').textContent = t;
     const ext = type => type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
 
+    // Tout ce qu'on peut enregistrer, par section : clé = nom du fichier (voices/<clé>.webm)
+    const SECTIONS = [
+      { title: '👥 Prénoms des personnages', entries: Object.entries(CHARACTERS).map(([id, c]) => ({ key: id, title: c.name, hint: `À dire : « ${c.name} »` })) },
+      { title: '📣 Annonces', entries: ANNOUNCES.map(a => ({ key: a.key, title: a.label, hint: `À dire : « ${a.text} »` })) },
+      { title: '⚡ Super pouvoirs', entries: Object.entries(CHARACTERS).map(([id, c]) => ({ key: 'special_' + id, title: `${c.special.icon} ${c.special.name}`, hint: `Super pouvoir de ${c.name} — à dire : « ${c.special.name} ! »` })) },
+    ];
+    const labelOf = key => SECTIONS.flatMap(sec => sec.entries).find(e => e.key === key).title;
+
     function render() {
       const list = document.getElementById('list');
       list.innerHTML = '';
-      for (const [id, c] of Object.entries(CHARACTERS)) {
+      for (const sec of SECTIONS) {
+        const h = document.createElement('h2');
+        h.textContent = sec.title;
+        list.appendChild(h);
+        for (const { key: id, title, hint } of sec.entries) {
         const row = document.createElement('div');
         row.className = 'row' + (recordingId === id ? ' rec' : '') + (clips[id] ? ' done' : '');
-        row.innerHTML = `<div class="name">${c.name}<small>${c.role}</small></div>
+        row.innerHTML = `<div class="name">${title}<small>${hint}</small></div>
           <span class="status">${recordingId === id ? '🔴 Enregistre…' : clips[id] ? '✔ Enregistré' : '—'}</span>
           <button class="btn-play" ${clips[id] && !recordingId ? '' : 'disabled'}>▶</button>
           <button class="btn-rec" ${recordingId && recordingId !== id ? 'disabled' : ''}>${recordingId === id ? '■ Stop' : '● Enregistrer'}</button>`;
         row.querySelector('.btn-play').onclick = () => playClip(id);
         row.querySelector('.btn-rec').onclick = () => recordingId === id ? stop() : start(id);
         list.appendChild(row);
+        }
       }
       document.getElementById('dlAll').disabled = !Object.keys(clips).length || !!recordingId;
     }
@@ -126,10 +147,10 @@
         recordingId = null;
         if (blob.size < 2000) {
           // Quelques centaines d'octets = aucun son capté (mauvais micro ou micro coupé)
-          msg(`${CHARACTERS[id].name} : rien n'a été capté. Choisis un autre micro dans la liste (la barre verte doit bouger quand tu parles).`);
+          msg(`${labelOf(id)} : rien n'a été capté. Choisis un autre micro dans la liste (la barre verte doit bouger quand tu parles).`);
         } else {
           clips[id] = blob;
-          msg(`${CHARACTERS[id].name} : enregistré ! (${Math.round(blob.size / 1024)} Ko)`);
+          msg(`${labelOf(id)} : enregistré ! (${Math.round(blob.size / 1024)} Ko)`);
         }
         render();
       };
@@ -156,7 +177,7 @@
         if (player) player.pause();
         player = new Audio(await toDataUrl(blob));
         await player.play();
-        msg(`Lecture de ${CHARACTERS[id].name} (${Math.round(blob.size / 1024)} Ko)`);
+        msg(`Lecture de ${labelOf(id)} (${Math.round(blob.size / 1024)} Ko)`);
       } catch (e) {
         msg('Lecture impossible : ' + (e && e.message ? e.message : e));
       }
