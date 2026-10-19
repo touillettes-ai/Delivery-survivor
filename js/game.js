@@ -344,7 +344,14 @@ const COSTUME_SETS = {
     { name: 'La Cheffe', lines: ["C'est moi la cheffe !", 'Réunion dans 5 minutes !', 'Tout le monde à son poste !'] },
     { name: 'Cheffe de cuisine', lines: ['Service !', "Ce soir, c'est moi qui cuisine !"] },
   ],
-  amelie: [{ name: 'Future maman', lines: ['Le bébé donne des coups de pied !', 'Je lui chante du Céline Dion !'] }],
+  amelie: [
+    { name: 'Future maman', lines: ['Le bébé donne des coups de pied !', 'Je lui chante du Céline Dion !'] },
+    { name: "Lanceuse d'alerte", lines: ['ALERTE ! ALERTE !', "Je remonte l'alerte !"], fx: 'beacon' },
+  ],
+  justine: [
+    { name: 'Maman en balade', lines: ['Petite balade avec bébé !', 'Chut, il dort…'] },
+    { name: 'Soleil souriant', lines: ["Je rayonne aujourd'hui !", "Il fait beau dans l'open space !"] },
+  ],
   imen: [{ name: 'Future maman', lines: ["Le congé mat', c'est bientôt !", "Ce budget, c'est pour la layette."] }],
   stephan: [
     { name: 'Stéphane à la retraite', lines: ['Enfin la retraite !', 'De mon temps, les incidents…'] },
@@ -2002,8 +2009,28 @@ function closeChest() {
 }
 
 // ---- États ----
-function show(id) { document.getElementById(id).classList.remove('hidden'); }
-function hide(id) { document.getElementById(id).classList.add('hidden'); }
+function show(id) { document.getElementById(id).classList.remove('hidden'); syncAudioCtl(); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); syncAudioCtl(); }
+
+// Contrôles du son en haut à droite : visibles sur les écrans de choix du personnage et du niveau
+function syncAudioCtl() {
+  const ctl = document.getElementById('audioCtl');
+  if (!ctl) return;
+  const visible = ['start', 'levels'].some(id => !document.getElementById(id).classList.contains('hidden'));
+  ctl.classList.toggle('hidden', !visible);
+  document.getElementById('audioMusic').classList.toggle('off', !Sfx.musicOn);
+  const v = Math.round(Sfx.volume * 100);
+  document.getElementById('audioVolume').value = v;
+  document.getElementById('volIcon').textContent = v === 0 ? '🔇' : v < 50 ? '🔉' : '🔊';
+}
+document.getElementById('audioMusic').onclick = () => { Sfx.toggleMusic(); syncAudioCtl(); };
+const volSlider = document.getElementById('audioVolume');
+volSlider.oninput = () => { Sfx.setVolume(volSlider.value / 100); syncAudioCtl(); };
+volSlider.onchange = () => volSlider.blur(); // rend les flèches au menu (skins, difficulté)
+// Même réglage dans le menu pause
+const pauseVol = document.getElementById('pauseVolume');
+pauseVol.oninput = () => { Sfx.setVolume(pauseVol.value / 100); renderSoundButtons(); syncAudioCtl(); };
+pauseVol.onchange = () => pauseVol.blur();
 
 // Boutons Musique / Effets du menu pause
 function renderSoundButtons() {
@@ -2014,6 +2041,10 @@ function renderSoundButtons() {
   };
   set('musicBtn', Sfx.musicOn, `🎵 Musique : ${Sfx.musicOn ? 'activée' : 'coupée'}`);
   set('sfxBtn', Sfx.sfxOn, `🔊 Effets : ${Sfx.sfxOn ? 'activés' : 'coupés'}`);
+  const v = Math.round(Sfx.volume * 100);
+  document.getElementById('pauseVolume').value = v;
+  document.getElementById('pauseVolValue').textContent = v + ' %';
+  document.getElementById('pauseVolIcon').textContent = v === 0 ? '🔇' : v < 50 ? '🔉' : '🔊';
 }
 // Abandonner la partie : retour à l'écran titre (après confirmation)
 function quitToMenu() {
@@ -2749,6 +2780,13 @@ function drawPlayer(p) {
   const fat = chocoFat(), fw = img.width * fat; // niveau 4 : le chocolat fait grossir
   ctx.drawImage(img, Math.round(p.x - fw / 2), Math.round(p.y - img.height / 2 + bob), Math.round(fw), img.height);
   const costume = costumeOf(p.charId);
+  if (costume && costume.fx === 'beacon') {
+    const blue = Math.floor(game.time * 4) % 2;
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(p.x + (blue ? 10 : -10), p.y - img.height / 2 + bob + 3, 34, blue ? '#3070ff' : '#ff2020', 0.55);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
   if (costume && costume.fx === 'storm' && (game.time % 2.3) < 0.2) {
     // Tempête Cécile : un petit éclair jaillit du nuage
     const x0 = p.x + Math.sin(Math.floor(game.time / 2.3) * 7) * 8, y0 = p.y + 4;

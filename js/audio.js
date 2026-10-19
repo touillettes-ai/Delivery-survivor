@@ -10,18 +10,24 @@ const Sfx = (() => {
   muted = load('ds-muted', false);
   musicOn = load('ds-music', true);
   sfxOn = load('ds-sfx', true);
+  // Volume général (0 à 1), réglé par le curseur des menus, appliqué à tout
+  let volume = (() => { try { const v = parseFloat(localStorage.getItem('ds-vol')); return isNaN(v) ? 1 : Math.max(0, Math.min(1, v)); } catch (e) { return 1; } })();
   const last = {};
   const sfxSilent = () => muted || !sfxOn;
 
   // Musique de fond en boucle (démarre au premier clic / touche, règle des navigateurs)
   const music = new Audio('music/music.webm');
   music.loop = true;
-  music.volume = MUSIC_VOLUME;
+  music.volume = MUSIC_VOLUME * volume;
   function updateMusic() {
+    music.volume = MUSIC_VOLUME * volume;
     if (started && musicOn && !muted) music.play().catch(() => {});
     else music.pause();
   }
-  const updateMaster = () => { if (master) master.gain.value = sfxSilent() ? 0 : VOLUME; };
+  const updateMaster = () => {
+    if (master) master.gain.value = sfxSilent() ? 0 : VOLUME * volume;
+    if (voiceOut) voiceOut.gain.value = VOICE_VOLUME * volume;
+  };
 
   // Le contexte audio peut être créé avant toute action (il reste en pause), ce qui permet
   // de décoder les voix enregistrées dès le chargement ; on le relance au premier clic / touche
@@ -31,7 +37,7 @@ const Sfx = (() => {
       if (!AC) return null;
       ac = new AC();
       master = ac.createGain();
-      master.gain.value = sfxSilent() ? 0 : VOLUME;
+      master.gain.value = sfxSilent() ? 0 : VOLUME * volume;
       master.connect(ac.destination);
     }
     return ac;
@@ -115,6 +121,7 @@ const Sfx = (() => {
   // Préchargées au démarrage pour être jouées instantanément au survol.
   const VOICE_EXTS = ['webm', 'ogg', 'm4a'];
   const VOICE_VOLUME = 0.5; // volume des prénoms annoncés (0 à 1)
+  let voiceOut = null;      // sortie de la chaîne d'effets des voix (pour le volume général)
   // Effet "FATALITY" : voix ralentie et plus grave, basses renforcées, écho et réverbération de grande salle
   const VOICE_FX = { rate: 0.8, bass: 9, reverb: 0.5, echo: 0.3 };
   const voiceBuffers = {}; // id -> son décodé (lu avec l'effet)
@@ -141,7 +148,8 @@ const Sfx = (() => {
     bass.gain.value = VOICE_FX.bass;
     const comp = ctx.createDynamicsCompressor();
     const out = ctx.createGain();
-    out.gain.value = VOICE_VOLUME;
+    out.gain.value = VOICE_VOLUME * volume;
+    voiceOut = out;
     const reverb = ctx.createConvolver();
     reverb.buffer = makeImpulse(ctx, 2.5);
     const wet = ctx.createGain();
@@ -176,7 +184,7 @@ const Sfx = (() => {
       await new Promise(resolve => {
         const clip = new Audio();
         clip.preload = 'auto';
-        clip.volume = VOICE_VOLUME;
+        clip.volume = VOICE_VOLUME * volume;
         clip.oncanplaythrough = () => { voiceClips[id] = clip; clip.oncanplaythrough = null; resolve(); };
         clip.onerror = () => preloadVoice(id, i + 1).then(resolve);
         clip.src = url;
@@ -195,6 +203,14 @@ const Sfx = (() => {
   return {
     get muted() { return muted; },
     get musicOn() { return musicOn; },
+    get volume() { return volume; },
+    setVolume(v) {
+      volume = Math.max(0, Math.min(1, v));
+      try { localStorage.setItem('ds-vol', String(volume)); } catch (e) { /* stockage indisponible */ }
+      updateMaster();
+      updateMusic();
+      for (const c of Object.values(voiceClips)) if (c) c.volume = VOICE_VOLUME * volume;
+    },
     get sfxOn() { return sfxOn; },
     toggleMusic() { musicOn = !musicOn; save('ds-music', musicOn); updateMusic(); },
     toggleSfx() { sfxOn = !sfxOn; save('ds-sfx', sfxOn); updateMaster(); if (!sfxOn) stopVoice(); },
@@ -234,7 +250,7 @@ const Sfx = (() => {
       if (frVoice) u.voice = frVoice;
       u.rate = 0.85; // voix de synthèse : plus lente et plus grave, façon FATALITY
       u.pitch = 0.4;
-      u.volume = VOICE_VOLUME;
+      u.volume = VOICE_VOLUME * volume;
       speech.speak(u);
     },
     toggle() {

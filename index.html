@@ -91,6 +91,9 @@
     .sound-opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
     .sound-opts .btn { min-width: 170px; }
     .sound-opts .btn.off { opacity: 0.6; text-decoration: line-through; }
+    .pause-volume { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 12px 0 4px; font-size: 14px; }
+    .pause-volume input { width: 220px; accent-color: #96cd32; cursor: pointer; }
+    .pause-volume b { width: 42px; text-align: right; color: #ffd866; }
 
     /* Classement partagé */
     .lb-send { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 8px 0 0; }
@@ -118,6 +121,14 @@
     @keyframes panel-in { from { transform: scale(0.9) translateY(10px); opacity: 0; } }
 
     .back-btn { margin-top: 8px; }
+
+    /* Contrôles du son (écrans de choix) */
+    .audio-ctl { position: fixed; top: 12px; right: 12px; z-index: 20; display: flex; align-items: center; gap: 8px; background: rgba(10,16,24,0.85); border: 2px solid #3a5068; border-radius: 8px; padding: 6px 10px; }
+    .audio-ctl.hidden { display: none; }
+    .audio-ctl button { font-size: 18px; background: #2a3a4c; border: 2px solid #3a5068; border-radius: 6px; padding: 2px 8px; color: #fff; }
+    .audio-ctl button.off { opacity: 0.45; text-decoration: line-through; }
+    .audio-ctl input { width: 110px; accent-color: #96cd32; cursor: pointer; }
+    .vol-icon { font-size: 16px; }
 
     /* Choix de la difficulté */
     .diff-title { font-family: 'Press Start 2P', sans-serif; font-size: 12px; color: #8fc4ea; margin: 16px 0 8px; }
@@ -153,6 +164,13 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- Son : bouton musique + volume général (visibles sur les écrans de choix) -->
+  <div id="audioCtl" class="audio-ctl hidden">
+    <button id="audioMusic" title="Couper / remettre la musique">🎵</button>
+    <span class="vol-icon" id="volIcon">🔊</span>
+    <input type="range" id="audioVolume" min="0" max="100" step="1" aria-label="Volume">
+  </div>
 
   <div id="title" class="overlay">
     <div class="logo">
@@ -219,6 +237,10 @@
         <button class="btn secondary" id="musicBtn"></button>
         <button class="btn secondary" id="sfxBtn"></button>
       </div>
+      <label class="pause-volume"><span id="pauseVolIcon">🔊</span> Volume
+        <input type="range" id="pauseVolume" min="0" max="100" step="1" aria-label="Volume">
+        <b id="pauseVolValue"></b>
+      </label>
       <p class="help"><b>M</b> : couper / remettre tout le son</p>
       <button class="btn" id="resumeBtn">▶ Reprendre</button>
       <button class="btn secondary" id="quitBtn">🏠 Abandonner</button>
@@ -251,11 +273,11 @@
     </div>
   </div>
 
-  <script src="js/audio.js?v=22"></script>
-  <script src="js/textures.js?v=22"></script>
-  <script src="js/weapons.js?v=22"></script>
-  <script src="js/characters.js?v=22"></script>
-  <script src="js/leaderboard.js?v=22"></script>
-  <script src="js/game.js?v=22"></script>
+  <script src="js/audio.js?v=25"></script>
+  <script src="js/textures.js?v=25"></script>
+  <script src="js/weapons.js?v=25"></script>
+  <script src="js/characters.js?v=25"></script>
+  <script src="js/leaderboard.js?v=25"></script>
+  <script src="js/game.js?v=25"></script>
 </body>
 </html>

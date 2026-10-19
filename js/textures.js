@@ -1531,6 +1531,56 @@ Textures.medkit = pixelSprite([
 
 // ---- Costumes supplémentaires (2e, 3e tenue…) : [grille, palette] dans l'ordre du choix ----
 const MORE_COSTUMES = {
+  // Justine : maman en balade (tenue d'une autre couleur + poussette avec bébé), puis soleil souriant
+  justine: [[[
+    '..hHhHhhHh...........',
+    '.hHhhHhhHhh..........',
+    'hHhssssssHhh.........',
+    'hhHsesseshHh.........',
+    '.hHssmmssHh..........',
+    '.Hh.ssss.hH....ooooo.',
+    '..bbbbbbbb....ooooooo',
+    '.sbbbbbbbbs.ccooBBBoo',
+    '..bbbbbbbb....ooFFFoo',
+    '..pppppppp....qqqqqqq',
+    '..pp....pp....ddddddd',
+    '..pp....pp....w.....w',
+    '.kkk....kkk..www...ww',
+  ], { h: '#3a2214', H: '#6a4026', s: '#f0c8a0', e: '#111', m: '#c05050', b: '#3aa0a0', p: '#3a4a7a', k: '#2a2a2a', o: '#5a6ab0', c: '#8a8e96', B: '#ffb0c8', F: '#f8d8c0', q: '#ffffff', d: '#2a2a3a', w: '#1a1a1a' }],
+  [[
+    '.y...yy...y.',
+    '..y.oooo.y..',
+    '...oOOOOo...',
+    '..oOOOOOOo..',
+    'yyoOeOOeOoyy',
+    '..oOOOOOOo..',
+    '..oOmOOmOo..',
+    '..oOOmmOOo..',
+    '...oOOOOo...',
+    '..y.oooo.y..',
+    '.y...yy...y.',
+    '............',
+  ], { y: '#ffc020', o: '#ff9a20', O: '#ffe040', e: '#3a2a10', m: '#c04020' }]],
+
+  // Amélie : 3e tenue « lanceuse d'alerte » (même tenue, autre couleur, gyrophare sur la tête)
+  amelie: [[[
+    '.....rr.....',
+    '....rRRr....',
+    '....gggg....',
+    '...hhhhhh...',
+    '..hHHhhHHh..',
+    '.hHhsssssHh.',
+    '.hhsessesHh.',
+    '.hHfsmmsfHh.',
+    '.hHhbbbbhHh.',
+    '.hhbbbbbbhh.',
+    '.sbbbbbbbbs.',
+    '..bbbbbbbb..',
+    '..jjjjjjjj..',
+    '...ss..ss...',
+    '...ss..ss...',
+    '..kkk..kkk..',
+  ], { r: '#ff2020', R: '#ffa0a0', g: '#5a5a5a', h: '#e0601c', H: '#ffa040', s: '#f8d4b8', f: '#e0a080', e: '#208a90', m: '#d04848', b: '#f0a020', j: '#2a2a3a', k: '#2a2a3a' }]],
   // Stéphane à la retraite : sa tenue habituelle… avec une canne
   stephan: [[[
     '..w.wwww.w...',
