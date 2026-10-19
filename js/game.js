@@ -24,7 +24,17 @@ const BOSS_TYPES = {
   daf: { name: 'DAF', sprite: 'dir_daf', ai: ['charge'],                    hpMult: 1.2 }, // charge comme un taureau
   pdg: { name: 'PDG', sprite: 'dir_pdg', ai: ['ring', 'summon', 'charge'],  hpMult: 1.8 }, // un peu de tout
 };
-const BOSS_ORDER = ['dsi', 'drh', 'daf', 'pdg'];
+// Ordre d'arrivée : DSI, DRH et DAF mélangés à chaque partie, le PDG toujours en dernier (boss final)
+const BOSS_SHUFFLED = ['dsi', 'drh', 'daf'];
+const BOSS_FINAL = 'pdg';
+function newBossOrder() {
+  const order = [...BOSS_SHUFFLED];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.random() * (i + 1) | 0;
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return [...order, BOSS_FINAL];
+}
 
 // Qui arrive à partir de quand (secondes) et avec quel poids
 const SPAWN_TABLE = [
@@ -338,7 +348,7 @@ function newGame(charId, levelId = selectedLevel) {
     spawnTimer: 0, stage: 0, eliteTimer: 60, bossIndex: 0, bossKills: 0, legendBossT: LEGEND_BOSS_DELAY, banner: null,
     eventT: FIRST_EVENT, event: null, ticketT: TICKET_EVERY[0], stats: {},
     specialCd: 0, special: null, // super pouvoir prêt dès le début
-    enemyShots: [], bossCount: 0, fatality: 0,
+    enemyShots: [], bossCount: 0, bossOrder: newBossOrder(), fatality: 0,
     cam: { x: 0, y: 0 }, flash: 0, hurtFlash: 0, hitStop: 0, dustT: 0, // effets visuels
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
@@ -1076,8 +1086,9 @@ function spawnEnemyAt(type, x, y) {
 }
 
 // Fait apparaître le directeur suivant (DSI, DRH, DAF, PDG, puis on recommence)
-function spawnBoss(text) {
-  const kind = BOSS_ORDER[game.bossCount++ % BOSS_ORDER.length], bt = BOSS_TYPES[kind];
+// kind : directeur à faire venir (par défaut le suivant dans l'ordre de la partie)
+function spawnBoss(text, kind = game.bossOrder[game.bossCount++ % game.bossOrder.length]) {
+  const bt = BOSS_TYPES[kind];
   spawnEnemy('director', 'boss');
   const e = game.enemies[game.enemies.length - 1];
   Object.assign(e, { kind, name: bt.name, sprite: bt.sprite, hp: e.hp * bt.hpMult, maxHp: e.maxHp * bt.hpMult });
@@ -1443,8 +1454,8 @@ function update(dt) {
   game.eliteTimer -= dt;
   if (game.eliteTimer <= 0) { game.eliteTimer = 60; spawnEnemy(pickEnemyType(), 'elite'); }
   if (game.bossIndex < BOSS_TIMES.length && game.time >= BOSS_TIMES[game.bossIndex]) {
+    spawnBoss('⚠ Le {name} arrive !', game.bossOrder[game.bossIndex % game.bossOrder.length]);
     game.bossIndex++;
-    spawnBoss('⚠ Le {name} arrive !');
   }
   // Événements aléatoires et tickets au sol
   if (game.event && (game.event.t -= dt) <= 0) game.event = null;
@@ -1462,7 +1473,7 @@ function update(dt) {
   if (waitingLegend && !game.enemies.some(e => e.boss) && !game.pickups.some(pk => pk.kind === 'chest')) {
     if ((game.legendBossT -= dt) <= 0) {
       game.legendBossT = LEGEND_BOSS_DELAY;
-      spawnBoss('⚠ Le {name} veut voir ton arme de plus près !');
+      spawnBoss('⚠ Le {name} veut voir ton arme de plus près !', BOSS_SHUFFLED[Math.random() * BOSS_SHUFFLED.length | 0]);
     }
   } else game.legendBossT = LEGEND_BOSS_DELAY;
 
