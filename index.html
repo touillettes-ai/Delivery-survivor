@@ -138,9 +138,21 @@
     .diff-btn small { color: #9ab; font-size: 11px; }
     .diff-btn:hover { border-color: #8fc4ea; }
     .diff-btn.selected { border-color: #ffd866; background: #34485e; }
+    .endless-btn { width: 100%; margin-top: 8px; flex-direction: row; justify-content: center; gap: 10px; }
+    .endless-btn.selected { border-color: #b070ff; background: #3a2a5a; }
 
-    /* Menu pause : résumé du personnage */
-    #pause .panel { max-width: 860px; }
+    /* Menu pause : résumé du personnage et carte */
+    #pause .panel { max-width: 1180px; }
+    .pause-top { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .pause-top .summary { flex: 2; min-width: 300px; }
+    .char-box { flex: 0 0 auto; background: radial-gradient(circle at 50% 45%, #3a5a7c, #1a2432 75%); border: 2px solid #3a5068; border-radius: 6px; padding: 4px; }
+    #pauseChar { display: block; width: 170px; height: 220px; image-rendering: pixelated; }
+    .version-tag { position: fixed; right: 12px; bottom: 10px; z-index: 20; font-family: 'Press Start 2P', monospace; font-size: 10px; color: #8fa4b8; opacity: 0.8; pointer-events: none; }
+    .version-tag.hidden { display: none; }
+    .map-box { flex: 1; min-width: 300px; background: #2a3a4c; border: 2px solid #3a5068; border-radius: 6px; padding: 8px 12px; text-align: left; }
+    .map-box h3 { margin: 0 0 6px; font-size: 13px; color: #8fc4ea; }
+    #pauseMap { display: block; width: 100%; max-width: 300px; aspect-ratio: 1; margin: 0 auto; border-radius: 4px; image-rendering: auto; }
+    .map-legend { font-size: 11px; color: #9ab; margin: 6px 0 0; line-height: 1.5; }
     .summary { display: flex; gap: 16px; flex-wrap: wrap; text-align: left; margin: 0 0 12px; }
     .sum-col { flex: 1; min-width: 260px; background: #2a3a4c; border: 2px solid #3a5068; border-radius: 6px; padding: 8px 12px; }
     .summary h3 { margin: 8px 0 4px; font-size: 13px; color: #8fc4ea; }
@@ -166,6 +178,7 @@
   <canvas id="game"></canvas>
 
   <!-- Son : bouton musique + volume général (visibles sur les écrans de choix) -->
+  <div id="versionTag" class="version-tag"></div>
   <div id="audioCtl" class="audio-ctl hidden">
     <button id="audioMusic" title="Couper / remettre la musique">🎵</button>
     <span class="vol-icon" id="volIcon">🔊</span>
@@ -206,7 +219,8 @@
       <div id="levelList"></div>
       <h2 class="diff-title">Difficulté</h2>
       <div id="diffList"></div>
-      <p class="help">Niveau : <b>↑ ↓</b>, <b>1</b> à <b>4</b> ou clic · Difficulté : <b>← →</b> · <b>Entrée</b> : jouer · <b>Échap</b> : changer de personnage</p>
+      <button class="diff-btn endless-btn" id="endlessBtn"><span>♾️</span><b>Mode infini</b><small>Pas de minuteur : la difficulté grimpe sans fin</small></button>
+      <p class="help">Niveau : <b>↑ ↓</b>, <b>1</b> à <b>4</b> ou clic · Difficulté : <b>← →</b> · Infini : <b>I</b> · <b>Entrée</b> : jouer · <b>Échap</b> : changer de personnage</p>
       <button class="btn secondary" id="backToChars">← Changer de personnage</button>
       <button class="btn secondary lb-only" id="boardBtn">🏆 Classement</button>
     </div>
@@ -232,7 +246,15 @@
     <div class="panel">
       <h1>Pause café</h1>
       <p>Appuie sur Échap pour reprendre</p>
-      <div id="pauseSummary" class="summary"></div>
+      <div class="pause-top">
+        <div class="char-box"><canvas id="pauseChar" width="170" height="220"></canvas></div>
+        <div id="pauseSummary" class="summary"></div>
+        <div class="map-box">
+          <h3>🗺️ Carte</h3>
+          <canvas id="pauseMap" width="300" height="300"></canvas>
+          <p class="map-legend" id="mapLegend"></p>
+        </div>
+      </div>
       <div class="sound-opts">
         <button class="btn secondary" id="musicBtn"></button>
         <button class="btn secondary" id="sfxBtn"></button>
@@ -273,11 +295,11 @@
     </div>
   </div>
 
-  <script src="js/audio.js?v=25"></script>
-  <script src="js/textures.js?v=25"></script>
-  <script src="js/weapons.js?v=25"></script>
-  <script src="js/characters.js?v=25"></script>
-  <script src="js/leaderboard.js?v=25"></script>
-  <script src="js/game.js?v=25"></script>
+  <script src="js/audio.js?v=45"></script>
+  <script src="js/textures.js?v=45"></script>
+  <script src="js/weapons.js?v=45"></script>
+  <script src="js/characters.js?v=45"></script>
+  <script src="js/leaderboard.js?v=45"></script>
+  <script src="js/game.js?v=45"></script>
 </body>
 </html>

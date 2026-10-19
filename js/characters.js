@@ -32,6 +32,14 @@ const FAIRY_BOSSES = {
   pdg: { name: 'Roi des Trolls', sprite: 'trollking', banner: '⚠ Le Roi des Trolls arrive !', arrival: "Ici, c'est MON pont… et MA réorganisation !", taunts: ['Péage obligatoire !', 'Les trolls, une grande famille.', 'Qui ose traverser ?', 'Je troll, donc je suis.'] },
 };
 
+// Niveau 2 : mascottes qui gardent les couloirs (voix enregistrable : voices/mascot_<id>.webm)
+const MASCOT_BOSSES = {
+  rabbit: { name: 'Lapin mascotte', icon: '🐰', sprite: 'mascotRabbit', ai: ['charge'], arrival: "Tu n'iras pas plus loin sans badge !", taunts: ['Hop hop hop !', 'Une carotte ?', "Badge, s'il vous plaît !"],
+    angry: "Tu m'as abîmé mon beau costume ! Tu vas me le payer !", angryTaunts: ['Mes oreilles sont toutes tordues !', 'Ça va être ta fête !', 'Plus de carottes pour toi !'] },
+  bear: { name: 'Ourson mascotte', icon: '🐻', sprite: 'mascotBear', ai: ['charge', 'summon'], arrival: 'Grrr… Personne ne passe sans mon badge !', taunts: ["Câlin d'ours !", 'Grrr !', 'Accès refusé !'],
+    angry: "GRRR ! Regarde ma fourrure ! Personne n'entre dans la salle PI !", angryTaunts: ['Je suis tout recousu !', 'GRRR !', 'La PI, c\u2019est fermé !'] },
+};
+
 // Super pouvoir partagé par les deux Delivery Managers
 const SPECIAL_MEP = { name: 'Pluie de MEP', icon: '📋', desc: 'Une pluie de demandes de mise en production tombe du ciel sur les ennemis.', type: 'rain', sprite: 'request' };
 

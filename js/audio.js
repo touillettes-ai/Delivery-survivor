@@ -122,6 +122,8 @@ const Sfx = (() => {
   const VOICE_EXTS = ['webm', 'ogg', 'm4a'];
   const VOICE_VOLUME = 0.5; // volume des prénoms annoncés (0 à 1)
   let voiceOut = null;      // sortie de la chaîne d'effets des voix (pour le volume général)
+  // Volume propre à certains enregistrements trop forts (1 = normal)
+  const VOICE_GAIN = { chocolate: 0.3 };
   // Effet "FATALITY" : voix ralentie et plus grave, basses renforcées, écho et réverbération de grande salle
   const VOICE_FX = { rate: 0.8, bass: 9, reverb: 0.5, echo: 0.3 };
   const voiceBuffers = {}; // id -> son décodé (lu avec l'effet)
@@ -171,6 +173,23 @@ const Sfx = (() => {
 
   // Charge voices/<id>.<ext> et le décode ; si fetch est impossible (page ouverte en fichier local),
   // on se rabat sur un simple lecteur audio, sans effet
+  // Coupe le silence au début et à la fin d'un enregistrement (le temps de réaction au studio),
+  // pour que la voix parte dès le déclenchement
+  function trimSilence(buf) {
+    const SEUIL = 0.03, AVANT = 0.02, APRES = 0.08; // seuil de son, marges gardées (s)
+    const chans = [...Array(buf.numberOfChannels)].map((_, c) => buf.getChannelData(c));
+    const loud = i => chans.some(d => Math.abs(d[i]) > SEUIL);
+    let start = 0, end = buf.length - 1;
+    while (start < end && !loud(start)) start++;
+    while (end > start && !loud(end)) end--;
+    start = Math.max(0, start - Math.round(AVANT * buf.sampleRate));
+    end = Math.min(buf.length - 1, end + Math.round(APRES * buf.sampleRate));
+    if (end - start < buf.sampleRate * 0.1) return buf; // presque rien d'audible : on garde tel quel
+    const out = ac.createBuffer(buf.numberOfChannels, end - start + 1, buf.sampleRate);
+    chans.forEach((d, c) => out.getChannelData(c).set(d.subarray(start, end + 1)));
+    return out;
+  }
+
   // Renvoie une promesse résolue quand le chargement est terminé (réussi ou non)
   async function preloadVoice(id, i = 0) {
     if (i >= VOICE_EXTS.length) { voiceClips[id] = null; return; }
@@ -178,7 +197,7 @@ const Sfx = (() => {
     try {
       const res = await fetch(url);
       if (!res.ok) return preloadVoice(id, i + 1);
-      voiceBuffers[id] = await getCtx().decodeAudioData(await res.arrayBuffer());
+      voiceBuffers[id] = trimSilence(await getCtx().decodeAudioData(await res.arrayBuffer()));
     } catch (e) {
       if (location.protocol !== 'file:') return preloadVoice(id, i + 1); // fichier illisible : on essaie le format suivant
       await new Promise(resolve => {
@@ -230,7 +249,10 @@ const Sfx = (() => {
         voiceSource = ac.createBufferSource();
         voiceSource.buffer = buf;
         voiceSource.playbackRate.value = VOICE_FX.rate;
-        voiceSource.connect(voiceChain(ac));
+        const gain = ac.createGain(); // volume propre à cet enregistrement
+        gain.gain.value = VOICE_GAIN[id] ?? 1;
+        voiceSource.connect(gain);
+        gain.connect(voiceChain(ac));
         voiceSource.start();
         return;
       }
@@ -238,6 +260,7 @@ const Sfx = (() => {
       if (!clip) { this.say(name); return; } // aucun enregistrement : voix de synthèse
       voiceClip = clip;
       clip.currentTime = 0;
+      clip.volume = VOICE_VOLUME * volume * (VOICE_GAIN[id] ?? 1);
       clip.play().catch(() => this.say(name));
     },
     preloadVoices(ids) { for (const id of ids) voiceReady[id] = preloadVoice(id); },

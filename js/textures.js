@@ -1531,6 +1531,21 @@ Textures.medkit = pixelSprite([
 
 // ---- Costumes supplémentaires (2e, 3e tenue…) : [grille, palette] dans l'ordre du choix ----
 const MORE_COSTUMES = {
+  // Imen en joli arc-en-ciel souriant
+  imen: [[[
+    '................',
+    '................',
+    '.....rrrrrr.....',
+    '...rrccccccrr...',
+    '..rrceyyyyecrr..',
+    '.rrcpyggggypcrr.',
+    '.rcygmllllmgycr.',
+    'rrcyglmmmmlgycrr',
+    'rwwwlvv..vvlwwwr',
+    'wwwwwv....vwwwww',
+    'wwwww......wwwww',
+    '.www........www.',
+  ], { r: '#ff4060', c: '#ffa030', y: '#ffe040', g: '#40d070', l: '#40a0ff', v: '#a060ff', w: '#ffffff', e: '#2a1a3a', m: '#c02050', p: '#ff9ac0' }]],
   // Justine : maman en balade (tenue d'une autre couleur + poussette avec bébé), puis soleil souriant
   justine: [[[
     '..hHhHhhHh...........',
@@ -1853,3 +1868,153 @@ Textures.mouse = pixelSprite([
   '.wwwwww.',
   '..wwww..',
 ], { w: '#e8ecf0', g: '#5a606a' }, 2);
+
+// ---- Niveau 4 : plus de variété (arbres à bonbons de toutes les couleurs, maison champignon, sucette géante) ----
+function makeCandyTree(dark, mid, light, stripe, candies) {
+  return makeCanvas(84, 112, g => {
+    for (let y = 60; y < 108; y += 6) drawRects(g, [[37, y, 10, 3, '#ffffff'], [37, y + 3, 10, 3, stripe]]);
+    circle(g, 42, 40, 30, dark); circle(g, 24, 50, 18, mid); circle(g, 60, 50, 18, mid); circle(g, 42, 28, 18, light);
+    circle(g, 34, 22, 6, 'rgba(255,255,255,0.35)'); // reflet
+    [[28, 36], [52, 30], [44, 52], [62, 46], [22, 52]].forEach(([x, y], i) => {
+      circle(g, x, y, 5, candies[i % candies.length]); drawRects(g, [[x - 1, y - 1, 2, 2, '#ffffff']]);
+    });
+  });
+}
+Object.assign(PROP_IMAGES, {
+  candytreeBlue: makeCandyTree('#7ab8ff', '#9ccaff', '#c0dcff', '#3a7ad0', ['#ff4080', '#ffd040', '#ffffff']),
+  candytreeMint: makeCandyTree('#6ad8a8', '#8ae6bc', '#b0f0d4', '#2a9a6a', ['#ff6a8a', '#8040ff', '#ffd040']),
+  candytreeLilac: makeCandyTree('#b88aff', '#cca8ff', '#e0c8ff', '#7a4ad0', ['#40e080', '#ff9a30', '#40c0ff']),
+  candytreeLemon: makeCandyTree('#ffd84a', '#ffe680', '#fff2b0', '#e0a020', ['#ff4060', '#40a0ff', '#40d070']),
+  // Maison champignon de fée (porte et fenêtre)
+  mushroomhouse: makeCanvas(84, 96, g => {
+    drawRects(g, [[24, 46, 36, 46, '#f4ead8'], [24, 46, 36, 3, '#ffffff'], [24, 88, 36, 4, '#d8c8a8']]);
+    drawRects(g, [[36, 66, 12, 22, '#8a5a2a'], [36, 66, 12, 2, '#a87440'], [45, 77, 2, 2, '#ffd040']]); // porte
+    circle(g, 32, 58, 5, '#7ac0ff'); drawRects(g, [[31, 53, 2, 10, '#8a5a2a'], [27, 57, 10, 2, '#8a5a2a']]); // fenêtre
+    g.fillStyle = '#e03040'; g.beginPath(); g.ellipse(42, 40, 40, 26, 0, Math.PI, Math.PI * 2); g.fill();
+    g.fillRect(2, 38, 80, 8);
+    g.fillStyle = '#c02030'; g.fillRect(2, 44, 80, 3);
+    for (const [x, y, r] of [[22, 30, 6], [44, 22, 7], [64, 32, 5], [34, 40, 4], [58, 42, 3]]) circle(g, x, y, r, '#ffffff');
+  }),
+  // Sucette géante plantée dans l'herbe
+  lollipop: makeCanvas(56, 100, g => {
+    drawRects(g, [[26, 46, 5, 52, '#f4f4f4'], [29, 46, 2, 52, '#d8d8d8']]);
+    circle(g, 28, 28, 26, '#ffffff');
+    const cols = ['#ff4080', '#40c0ff', '#ffd040', '#40d070'];
+    for (let i = 0; i < 4; i++) {
+      g.strokeStyle = cols[i]; g.lineWidth = 6; g.beginPath();
+      g.arc(28, 28, 22 - i * 6, i * 0.8, i * 0.8 + Math.PI * 1.4); g.stroke();
+    }
+    circle(g, 20, 18, 4, 'rgba(255,255,255,0.6)');
+  }),
+});
+Object.assign(PROPS, {
+  candytreeBlue:  { img: PROP_IMAGES.candytreeBlue,  w: 22, h: 12, top: 96 },
+  candytreeMint:  { img: PROP_IMAGES.candytreeMint,  w: 22, h: 12, top: 96 },
+  candytreeLilac: { img: PROP_IMAGES.candytreeLilac, w: 22, h: 12, top: 96 },
+  candytreeLemon: { img: PROP_IMAGES.candytreeLemon, w: 22, h: 12, top: 96 },
+  mushroomhouse:  { img: PROP_IMAGES.mushroomhouse,  w: 40, h: 14, top: 80 },
+  lollipop:       { img: PROP_IMAGES.lollipop,       w: 10, h: 8,  top: 90 },
+});
+
+// ---- Niveau 2 : accueil avec ses hôtesses, et grands arbres pour les haies ----
+Object.assign(PROP_IMAGES, {
+  // Grand bureau d'accueil : deux hôtesses derrière un comptoir, panneau « ACCUEIL »
+  reception: makeCanvas(176, 96, g => {
+    drawRects(g, [[48, 2, 80, 16, '#2a3a5a'], [50, 4, 76, 12, '#3a5a8a']]);
+    g.fillStyle = '#ffffff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('ACCUEIL', 88, 13);
+    const a = Sprites.speakerA.right, b = Sprites.speakerB.right;
+    g.drawImage(a, 46 - a.width / 2, 22);
+    g.drawImage(b, 130 - b.width / 2, 22);
+    drawRects(g, [
+      [4, 50, 168, 10, '#f4f0e8'], [4, 50, 168, 2, '#ffffff'],      // plateau
+      [8, 60, 160, 32, '#b07a48'], [8, 60, 160, 3, '#c89060'],       // façade en bois
+      [8, 88, 160, 4, '#7a5030'], [80, 64, 16, 24, '#96cd32'],      // socle + logo
+      [30, 42, 18, 8, '#2a2e36'], [116, 42, 18, 8, '#2a2e36'],      // écrans
+      [62, 44, 10, 6, '#f4f4f4'], [140, 44, 8, 6, '#ff9ad0'],       // papiers, fleur
+    ]);
+  }),
+  // Grand arbre (pour les haies qui forment des couloirs)
+  bigtree: makeCanvas(76, 100, g => {
+    drawRects(g, [[33, 56, 10, 40, '#6a4020'], [33, 56, 3, 40, '#8a5a30']]);
+    circle(g, 38, 38, 30, '#2a6a30'); circle(g, 20, 50, 18, '#2a6a30'); circle(g, 56, 50, 18, '#2a6a30');
+    circle(g, 30, 28, 16, '#3a8a3e'); circle(g, 50, 36, 12, '#3a8a3e'); circle(g, 26, 44, 9, '#4a9a48');
+    circle(g, 26, 20, 6, '#5aae4a');
+  }),
+});
+PROPS.reception = { img: PROP_IMAGES.reception, w: 168, h: 34, top: 58 };
+
+// ---- Boule aimant (attire toutes les gemmes) et bonbon de l'accueil ----
+Textures.magnet = makeCanvas(34, 34, g => {
+  const gr = g.createRadialGradient(13, 12, 2, 17, 17, 16);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.3, '#b0e0ff'); gr.addColorStop(0.75, '#4a6aff'); gr.addColorStop(1, '#2a2a9a');
+  g.fillStyle = gr; g.beginPath(); g.arc(17, 17, 15, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.arc(17, 19, 6, Math.PI, 0); g.stroke(); // petit aimant
+  drawRects(g, [[10, 18, 3, 5, '#e03040'], [21, 18, 3, 5, '#e03040']]);
+});
+Textures.candy = pixelSprite([
+  'pp......pp',
+  'ppprrrrppp',
+  '.prrwrrrp.',
+  '.prrrrwrp.',
+  'ppprrrrppp',
+  'pp......pp',
+], { p: '#ff9ad0', r: '#e02060', w: '#ffffff' }, 3);
+
+// ---- Mascottes, gardiennes des couloirs du niveau 2 (boss) ----
+const BEAR_ROWS = [
+  '.bb......bb.',
+  'bBBb....bBBb',
+  'bBbbbbbbbbBb',
+  '.bbbbbbbbbb.',
+  '.bbebbbbebb.',
+  '.bbbmmmmbbb.',
+  '.bbmmnnmmbb.',
+  '..bbmmmmbb..',
+  '.bbbbbbbbbb.',
+  'bbbbMMMMbbbb',
+  'bbbMMMMMMbbb',
+  '.bbbMMMMbbb.',
+  '..bbb..bbb..',
+  '.bbbb..bbbb.',
+];
+Sprites.mascotBear = enemySet(walkFrames(BEAR_ROWS, { b: '#9a6a3a', B: '#e0a080', e: '#1a1a1a', m: '#e8c8a0', n: '#2a1a10', M: '#f0d8b0' }));
+Sprites.mascotRabbit = enemySet(walkFrames(COSTUMES.matthieu[0], COSTUMES.matthieu[1]));
+Textures.mascotBadge = Textures.badge; // le badge que lâche une mascotte
+
+// Badge du niveau 2 avec un collier bleu (alterne avec le collier rouge)
+Textures.badgeBlue = pixelSprite([
+  '..rr....rr..',
+  '...rr..rr...',
+  '....rrrr....',
+  '.....kk.....',
+  '.wwwwwwwwww.',
+  '.wbbbbwgggw.',
+  '.wbssbwwwww.',
+  '.wbssbwgggw.',
+  '.wbbbbwwwww.',
+  '.wwwwwwgggw.',
+  '.wGGGGGGGGw.',
+  '.wwwwwwwwww.',
+], { r: '#2f6fd0', k: '#888', w: '#f4f6fa', b: '#1423dc', s: '#f0c8a0', g: '#9aa0a8', G: '#96cd32' }, 3);
+
+// Version abîmée d'un sprite de mascotte : taches de saleté, accroc recousu, pansement sur la tête
+function hurtFrame(src) {
+  return makeCanvas(src.width, src.height, g => {
+    const w = src.width, h = src.height, s = Math.max(2, Math.round(w / 16)), at = (fx, fy) => [Math.round(w * fx / s) * s, Math.round(h * fy / s) * s];
+    g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = 'source-atop'; // on ne peint que sur la mascotte
+    g.fillStyle = 'rgba(70,45,20,0.5)';                                             // taches de saleté
+    for (const [fx, fy, k] of [[0.22, 0.62, 3], [0.68, 0.78, 2], [0.55, 0.35, 2], [0.3, 0.88, 2]]) { const [x, y] = at(fx, fy); g.fillRect(x, y, s * k, s * 2); g.fillRect(x + s, y - s, s * (k - 1), s); }
+    const [px, py] = at(0.6, 0.55);                                                   // pièce recousue
+    g.fillStyle = '#8a8f5a'; g.fillRect(px, py, s * 3, s * 3);
+    g.fillStyle = '#1a1a1a'; for (let i = 0; i < 3; i++) { g.fillRect(px - s / 2, py + i * s + s / 4, s * 4, Math.max(1, s / 3)); }
+    const [tx, ty] = at(0.25, 0.42);                                                  // accroc
+    g.fillStyle = '#2a1a10'; g.fillRect(tx, ty, s, s); g.fillRect(tx + s, ty + s, s, s); g.fillRect(tx + 2 * s, ty, s, s);
+    const [bx, by] = at(0.62, 0.1);                                                   // pansement en croix
+    g.fillStyle = '#f4e4d0'; g.fillRect(bx - s, by, s * 4, s); g.fillRect(bx + s / 2, by - s, s, s * 3);
+    g.fillStyle = '#d07070'; g.fillRect(bx + s / 2, by, s, s);
+    g.fillStyle = 'rgba(30,30,40,0.35)'; g.fillRect(0, 0, w, h);                       // couleurs ternies
+  });
+}
+Sprites.mascotRabbitHurt = enemySet(Sprites.mascotRabbit.frames.map(hurtFrame));
+Sprites.mascotBearHurt = enemySet(Sprites.mascotBear.frames.map(hurtFrame));

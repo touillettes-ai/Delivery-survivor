@@ -1,7 +1,8 @@
 // ==== Boucle principale du jeu ====
 const MAX_ENEMIES = 500;
 const MAX_WEAPONS = 4, MAX_PASSIVES = 4;
-const DEMO_MODE = false; // Mode démo : chaque personnage démarre avec son arme en version légendaire
+const DEMO_MODE = false;
+const GAME_VERSION = 'v1.20'; // affichée en bas à droite avant de jouer // Mode démo : chaque personnage démarre avec son arme en version légendaire
 const XP_FACTOR = 0.95; // XP nécessaire pour monter de niveau (0.95 = -5%)
 
 // Les collègues qui veulent "juste 5 minutes" de ton temps (flying : ignore le mobilier)
@@ -83,6 +84,10 @@ const FOLLOWER_MEETING = 30; // durée de sa réunion (double-clic dessus), en s
 
 // Couleur de l'aura des armes selon leur niveau (index = niveau, 1 = pas d'aura)
 const SOUND_ON_HIT = new Set(['coffee', 'postit']); // armes sans tir : le son joue quand elles touchent
+// Tirs espacés : deux armes différentes ne partent jamais en même temps (sauf les armes « continues »)
+const FIRE_SPACING = 0.12;        // secondes minimum entre les tirs de deux armes
+const FIRE_JITTER = 0.1;          // ±10 % de variation sur chaque recharge, pour ne pas se resynchroniser
+const CONTINUOUS_WEAPONS = new Set(['coffee', 'postit']);
 
 // Index 7 = version légendaire
 const LEVEL_COLORS = [null, null, '#ffffff', '#7fd8ff', '#3ad06a', '#b060ff', '#ffd040', '#ff3a6a'];
@@ -105,17 +110,18 @@ const diff = () => DIFFICULTIES[game.diff] || DIFFICULTIES.normal;
 const LEVELS = {
   gtar: {
     icon: '🏢', name: 'Survie à une journée au GTAR',
-    desc: "Tiens bon dans l'open space de 9h00 à 18h00. Un directeur débarque toutes les 2 minutes.",
+    desc: "Tiens bon dans l'open space de 9h00 à 18h00. Bonus : retrouve les lettres D-E-L-I-V-E-R-Y cachées sur la carte !",
+    letters: true,
     floor: 'floor',
     props: [['island', 0.4], ['meeting', 0.08], ['coffee', 0.06], ['whiteboard', 0.06], ['cabinet', 0.06], ['bookshelf', 0.05], ['plant', 0.12], ['printer', 0.08], ['cooler', 0.05]],
     decals: [['stain', 0.25], ['papers', 0.2], ['rugGray', 0.12], ['cable', 0.15]],
   },
   pi: {
     icon: '🌳', name: 'Rejoins la salle PI',
-    desc: 'Récupère ton badge, puis traverse les bureaux au parquet, entre patios et arbres, pour ouvrir la salle PI avant 18h00. Suis la flèche !',
+    desc: "Récupère ton badge, franchis les couloirs gardés par les mascottes (bats-les pour scanner leur badge), puis rejoins la salle PI avant 18h00. Suis la flèche !",
     floor: 'parquet',
-    props: [['patio', 0.25], ['sofa', 0.1], ['pingpong', 0.08], ['babyfoot', 0.08], ['beanbags', 0.08], ['bookshelf', 0.06], ['plant', 0.17], ['cooler', 0.06]],
-    decals: [['rugRed', 0.12], ['rugBlue', 0.12], ['leaves', 0.25], ['papers', 0.12]],
+    props: [['patio', 0.12], ['reception', 0.08], ['sofa', 0.06], ['pingpong', 0.05], ['babyfoot', 0.05], ['beanbags', 0.05], ['bookshelf', 0.04], ['plant', 0.1], ['cooler', 0.04]],
+    decals: [['rugRed', 0.08], ['rugBlue', 0.08], ['leaves', 0.15], ['papers', 0.08]],
     goal: true,
   },
   mep: {
@@ -128,6 +134,27 @@ const LEVELS = {
     xpMult: 2.5, // niveau 2 fois plus court : on gagne bien plus d'XP pour monter aussi haut
   },
 };
+// ---- Objectifs bonus ----
+// Niveau 1 : les lettres D-E-L-I-V-E-R-Y cachées sur la carte
+const LETTERS_WORD = 'DELIVERY';
+const LETTER_DIST = [700, 2500];   // distance des lettres au point de départ
+const PARTY_TIME = 9;              // durée de la danse de la Delivery Team (s)
+const PARTY_DMG = 0.4;             // +40 % de dégâts jusqu'à la fin de la partie
+// Niveau 4 : les 4 licornes péteuses dans leurs enclos
+const PEN_W = 240, PEN_H = 180, PEN_FENCE = 10, PEN_GATE = 70;
+// Niveau 1 : espaces de travail fermés par des cloisons vitrées (une porte), avec des bureaux dedans
+const WS_COUNT = 12;               // nombre d'espaces sur la carte
+const WS_DIST = [750, 3800];       // distance au point de départ
+const WS_W = 520, WS_H = 380, WS_WALL = 12, WS_DOOR = 120;
+const WS_CANDY_CHANCE = 0.5;       // un espace sur deux cache un bonbon d'XP
+const CANDY_WAVE = 18;             // ennemis attirés quand on prend un bonbon (niveaux 1 et 2)
+const PEN_DIST = [1300, 2400];     // distance des enclos au point de départ
+const PEN_WAVE = 22;               // ennemis qui débarquent quand on entre dans un enclos
+const MOUNT_SPEED = 1.4;           // +40 % de vitesse sur la licorne
+const MOUNT_FART_EVERY = [6, 9];   // prout magique toutes les 6 à 9 s
+const MOUNT_FART_R = 140;          // rayon du prout magique
+const MOUNT_FART_DMG = 30;         // + 12 par palier de difficulté
+
 // Niveau 4 : pluies de chocolat
 const CHOCO_FIRST = 30;            // première pluie à 30 s
 const CHOCO_EVERY = [40, 60];      // puis toutes les 40 à 60 s
@@ -146,9 +173,13 @@ const SERVER_TARGET_CHANCE = 0.5; // part des ennemis qui foncent sur le serveur
 const SERVER_REPAIR = 0.1;        // un ticket ramassé répare 10% du serveur
 LEVELS.gourmand = {
   icon: '🍫', name: 'Les gourmands du Delivery',
-  desc: "Survis 10 minutes dans un monde féerique. Gare aux pluies de chocolat : chaque chocolat donne +0,3 % de dégâts… mais tu grossis et tu ralentis. Cours pour mincir !",
+  desc: "Survis 10 minutes dans un monde féerique. Gare aux pluies de chocolat ! Bonus : retrouve les 4 licornes péteuses dans leurs enclos pour en chevaucher une.",
+  pens: true,
   floor: 'fairy',
-  props: [['candytree', 0.3], ['canbush', 0.18], ['funflower', 0.2], ['unicorn', 0.1]],
+  props: [
+    ['candytree', 0.08], ['candytreeBlue', 0.07], ['candytreeMint', 0.07], ['candytreeLilac', 0.06], ['candytreeLemon', 0.05],
+    ['mushroomhouse', 0.07], ['lollipop', 0.06], ['canbush', 0.13], ['funflower', 0.15], ['unicorn', 0.08],
+  ],
   decals: [['sparkles', 0.35], ['wrappers', 0.2], ['rainbow', 0.1]],
   chocolate: true,
   // Même comportement, apparence féerique : sprite de remplacement par type d'ennemi (flying : vole par-dessus le décor)
@@ -167,6 +198,31 @@ const levelDuration = () => LEVELS[game.level].duration || GAME_DURATION;
 const PI_DISTANCE = 8000;    // distance entre le départ et la porte de la salle PI
 const BADGE_DISTANCE = 4000; // distance entre le départ et le badge (sur le côté)
 const PI_ROOM_W = 640, PI_ROOM_H = 480, PI_WALL = 16, PI_DOOR = 140;
+// Haies d'arbres entre le départ et la salle PI : un seul passage (un couloir) par haie
+const HEDGE_AT = [0.35, 0.7];      // position des haies sur le trajet (fraction de la distance jusqu'à la salle)
+const HEDGE_GAP = 180;             // largeur du passage
+const HEDGE_CORRIDOR = 220;        // demi-longueur du couloir formé par les arbres
+const HEDGE_LEN = 15000;           // longueur des haies de chaque côté (impossible à contourner en pratique)
+const HEDGE_STEP = 64;             // un arbre tous les 64 px
+// Badge du niveau 2 : gardé par des ennemis qui dansent autour, collier rouge / bleu en alternance
+const BADGE_GUARDS = 10;            // nombre de gardes
+const BADGE_GUARD_R = 95;           // rayon de leur ronde
+const BADGE_GUARD_HP = 3;           // ×3 PV par rapport à un ennemi normal
+const BADGE_COLOR_TIME = 3;         // 3 s rouge, puis 3 s bleu, en boucle
+const BADGE_MODES = {
+  presta: { name: 'Mode Prestataire', color: '#d03030', dmg: 0.25, speed: 0.13, xp: 0.03 },
+  interne: { name: 'Mode Interne', color: '#2f6fd0', dmg: 0.30, speed: 0.10, xp: 0.035 },
+};
+// Pourcentage lisible : 0.035 → « 3,5 », 0.03 → « 3 »
+const fmtPct = v => String(Math.round(v * 1000) / 10).replace('.', ',');
+const MASCOT_TRIGGER = 650;        // la mascotte surgit quand on approche de l'entrée du couloir
+const PI_AMBUSH_R = 280;            // devant la salle PI : la porte se referme et les 2 mascottes reviennent, furieuses
+const PI_AMBUSH_HP = 1.3;           // un peu plus de PV qu'au premier combat
+const CANDY_XP = [0.3, 1];         // bonbon de l'accueil : entre 30 % et 100 % de l'XP du niveau en cours
+const CANDY_COOLDOWN = 45;         // au plus un bonbon toutes les 45 s (et un par bureau d'accueil)
+const MAGNET_DROP_CHANCE = 0.003;  // boule aimant : 0,3 % des ennemis vaincus (une seule à la fois au sol)
+const MAGNET_LIFE = 30;
+const RECEPTION_LINES = ['Bonjour !', 'Bienvenue !', 'Bonne journée !', "La salle PI ? C'est tout droit !", 'Vous avez votre badge ?'];
 const PI_TALK = [
   'Bienvenue au PI !',
   'Voici les objectifs du PI',
@@ -271,6 +327,11 @@ let selectedChar = 'coline';
 let selectedLevel = 'gtar';
 let selectedDifficulty = (() => { try { return localStorage.getItem('ds-diff') || 'normal'; } catch (e) { return 'normal'; } })();
 if (!DIFFICULTIES[selectedDifficulty]) selectedDifficulty = 'normal';
+// Mode infini : pas de minuteur, la difficulté continue de grimper au même rythme
+let selectedEndless = (() => { try { return localStorage.getItem('ds-endless') === '1'; } catch (e) { return false; } })();
+const ENDLESS_BOSS_EVERY = 120; // en infini, un directeur toutes les 2 minutes après le PDG
+// Clé du classement : un classement à part pour le mode infini (ex. « gtar_inf »)
+const boardKey = (level, endless) => level + (endless ? '_inf' : '');
 
 // ---- Entrées ----
 const keys = {};
@@ -310,6 +371,7 @@ addEventListener('keydown', e => {
     const digit = /^(Digit|Numpad)[1-9]$/.test(e.code) ? +e.code.slice(-1) - 1 : -1;
     if (ids[digit]) startGame(selectedChar, ids[digit]);
     if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); startGame(selectedChar, selectedLevel); }
+    if (e.code === 'KeyI' && !e.repeat) toggleEndless();
     if (e.code === 'Escape') { hide('levels'); openCharSelect(); }
     return;
   }
@@ -352,7 +414,10 @@ const COSTUME_SETS = {
     { name: 'Maman en balade', lines: ['Petite balade avec bébé !', 'Chut, il dort…'] },
     { name: 'Soleil souriant', lines: ["Je rayonne aujourd'hui !", "Il fait beau dans l'open space !"] },
   ],
-  imen: [{ name: 'Future maman', lines: ["Le congé mat', c'est bientôt !", "Ce budget, c'est pour la layette."] }],
+  imen: [
+    { name: 'Future maman', lines: ["Le congé mat', c'est bientôt !", "Ce budget, c'est pour la layette."] },
+    { name: 'Arc-en-ciel', lines: ['Après la pluie, le beau temps !', 'Le budget est au beau fixe !'] },
+  ],
   stephan: [
     { name: 'Stéphane à la retraite', lines: ['Enfin la retraite !', 'De mon temps, les incidents…'] },
     { name: 'Disco boy', lines: ['Mamma Mia !'], talk: ['I am the dancing king !', 'Gimme Gimme Gimme !', 'Mamma Mia !'] },
@@ -437,7 +502,7 @@ function inputDir() {
 // ---- Initialisation ----
 function newGame(charId, levelId = selectedLevel) {
   game = {
-    state: 'start', level: levelId, diff: selectedDifficulty, time: 0, kills: 0, shake: 0,
+    state: 'start', level: levelId, diff: selectedDifficulty, endless: selectedEndless, time: 0, kills: 0, shake: 0,
     player: {
       charId, x: 0, y: 0, r: 14, hp: 100, maxHp: 100, speed: 150,
       level: 1, xp: 0, xpNext: Math.round(5 * XP_FACTOR), pendingLevels: 0,
@@ -457,6 +522,8 @@ function newGame(charId, levelId = selectedLevel) {
   decalCache.clear();
   if (LEVELS[levelId].goal) createPiRoom();
   if (LEVELS[levelId].server) createServer();
+  if (LEVELS[levelId].letters) { createLetters(); createWorkspaces(); }
+  if (LEVELS[levelId].pens) createPens();
   const ch = CHARACTERS[charId];
   if (ch.follower) game.follower = { x: -30, y: 0, r: 10, dirX: 1, moving: false, bubble: 0, bubbleTimer: 3, text: '', target: null, dashT: 0, dashTimer: 6, mode: 'follow', awayT: 0 };
   if (ch.apply) ch.apply(game.player);
@@ -466,7 +533,10 @@ function newGame(charId, levelId = selectedLevel) {
   }
   addWeapon(ch.weapon);
   // Mode démo : l'arme de départ est directement légendaire
-  if (DEMO_MODE) Object.assign(game.weapons[0], { level: WEAPONS[ch.weapon].maxLevel, legendary: true });
+  if (DEMO_MODE) {
+    Object.assign(game.weapons[0], { level: WEAPONS[ch.weapon].maxLevel, legendary: true });
+    game.player.speed *= 2; // pour tester plus vite
+  }
 }
 
 function startGame(charId, levelId = selectedLevel) {
@@ -512,7 +582,15 @@ function buildDifficultySelect() {
     box.appendChild(b);
   }
   selectDifficulty(selectedDifficulty);
+  toggleEndless(selectedEndless);
 }
+
+function toggleEndless(on = !selectedEndless) {
+  selectedEndless = on;
+  try { localStorage.setItem('ds-endless', on ? '1' : '0'); } catch (e) { /* stockage indisponible */ }
+  document.getElementById('endlessBtn').classList.toggle('selected', on);
+}
+document.getElementById('endlessBtn').onclick = () => toggleEndless();
 
 function selectDifficulty(id) {
   selectedDifficulty = id;
@@ -548,14 +626,18 @@ function createPiRoom() {
     badgeX: Math.cos(ba) * BADGE_DISTANCE, badgeY: Math.sin(ba) * BADGE_DISTANCE, lockedHintT: 0,
   };
   game.hasBadge = false;
-  game.walls = [
+  createHedges(doorY);
+  game.walls = game.walls || [];
+  game.walls.push(
     { x, y, w, h: T + 36 },                       // mur du fond (avec sa façade)
     { x, y, w: T, h },                             // mur gauche
     { x: x + w - T, y, w: T, h },                  // mur droit
     { x, y: y + h - T, w: side, h: T },            // mur avant, de part et d'autre de la porte
     { x: x + w - side, y: y + h - T, w: side, h: T },
     { x: x + side, y: y + h - T, w: PI_DOOR, h: T, door: true }, // la porte, retirée quand on a le badge
-  ];
+  );
+  // Le badge ne doit pas tomber dans une haie
+  for (const hd of game.hedges) if (Math.abs(game.goal.badgeY - hd.y) < 320) game.goal.badgeY += game.goal.badgeY > hd.y ? 360 : -360;
   // Public assis face à la scène, avec une allée centrale
   for (let row = 0; row < 5; row++)
     for (let col = 0; col < 10; col++) {
@@ -568,6 +650,111 @@ function createPiRoom() {
         phase: Math.random() * 10,
       });
     }
+}
+
+// Haies horizontales entre le départ (y = 0) et la salle PI (au nord) : arbres + un couloir de passage
+function createHedges(doorY) {
+  game.walls = game.walls || [];
+  game.clearZones = game.clearZones || [];
+  game.hedges = HEDGE_AT.map(f => {
+    const y = Math.round(doorY * f), gapX = Math.round((Math.random() - 0.5) * 2400), half = HEDGE_GAP / 2, T = 30;
+    const i = game.walls.filter(wl => wl.hedgeDoor !== undefined).length;
+    game.walls.push(
+      { x: gapX - half, y: y - 20, w: HEDGE_GAP, h: 40, hedgeDoor: i },  // porte au bout du couloir (fermée)
+      { x: -HEDGE_LEN, y: y - 20, w: gapX - half + HEDGE_LEN, h: 40 },             // haie à gauche du passage
+      { x: gapX + half, y: y - 20, w: HEDGE_LEN - gapX - half, h: 40 },             // haie à droite du passage
+      { x: gapX - half - T, y: y - HEDGE_CORRIDOR, w: T, h: HEDGE_CORRIDOR * 2 },   // bords du couloir
+      { x: gapX + half, y: y - HEDGE_CORRIDOR, w: T, h: HEDGE_CORRIDOR * 2 },
+    );
+    game.clearZones.push({ x: -HEDGE_LEN, y: y - HEDGE_CORRIDOR - 60, w: HEDGE_LEN * 2, h: HEDGE_CORRIDOR * 2 + 120 });
+    return { y, gapX, mascot: i === 0 ? 'rabbit' : 'bear', spawned: false, open: false, index: i };
+  });
+}
+
+// La mascotte du couloir surgit quand on approche de l'entrée (côté départ)
+function updateHedgeDoors() {
+  const p = game.player;
+  for (const hd of game.hedges || []) {
+    if (hd.spawned || hd.open || p.y < hd.y || p.y - hd.y > MASCOT_TRIGGER || Math.abs(p.x - hd.gapX) > MASCOT_TRIGGER) continue;
+    hd.spawned = true;
+    const m = MASCOT_BOSSES[hd.mascot];
+    spawnEnemy('director', 'boss');
+    const e = game.enemies[game.enemies.length - 1];
+    Object.assign(e, { kind: 'mascot', mascot: hd.mascot, name: m.name, sprite: m.sprite, aiList: m.ai, mascotHedge: hd.index, x: hd.gapX, y: hd.y + HEDGE_CORRIDOR * 0.5 });
+    Sfx.boss();
+    game.banner = { text: `⚠ ${m.icon} Le ${m.name.toLowerCase()} garde le passage !`, t: 3 };
+  }
+}
+
+// Badge de la mascotte ramassé : il est scanné et la porte du couloir s'ouvre
+function openHedgeDoor(i) {
+  const hd = game.hedges[i];
+  if (!hd || hd.open) return;
+  hd.open = true;
+  game.walls = game.walls.filter(wl => wl.hedgeDoor !== i);
+  Sfx.chest();
+  game.banner = { text: '🪪 Badge scanné : la porte s\'ouvre !', t: 3 };
+}
+
+// Cloisons de bureau (panneaux gris, bandeau vitré, montants) et portes vitrées des couloirs
+function drawHedgeWalls(camX, camY) {
+  const x0 = camX - 40, x1 = camX + W + 40;
+  for (const wl of game.walls) {
+    if (wl.x + wl.w < x0 || wl.x > x1 || wl.y + wl.h < camY - 80 || wl.y > camY + H + 40) continue;
+    if (wl.hedgeDoor === undefined && !(game.hedges || []).some(hd => Math.abs(wl.y + wl.h / 2 - hd.y) < HEDGE_CORRIDOR + 10)) continue;
+    const x = Math.max(wl.x, x0), w = Math.min(wl.x + wl.w, x1) - x;
+    if (wl.hedgeDoor !== undefined) continue; // la porte est dessinée à part
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(x + 4, wl.y + wl.h - 4, w, 10);                 // ombre au sol
+    ctx.fillStyle = '#b8bec8';
+    ctx.fillRect(x, wl.y - 26, w, wl.h + 26);                     // panneau
+    ctx.fillStyle = '#9ac8e0';
+    ctx.fillRect(x, wl.y - 22, w, 12);                            // bandeau vitré
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(x, wl.y - 22, w, 3);
+    ctx.fillStyle = '#e8ecf0';
+    ctx.fillRect(x, wl.y - 28, w, 3);                             // dessus
+    ctx.fillStyle = '#7a808c';
+    for (let k = Math.ceil(x / 80) * 80; k < x + w; k += 80) ctx.fillRect(k, wl.y - 26, 3, wl.h + 26); // montants
+  }
+  // Portes : fermées (voyant rouge, lecteur de badge) ou ouvertes (battants poussés, voyant vert)
+  for (const hd of game.hedges) {
+    const x = hd.gapX - HEDGE_GAP / 2, y = hd.y - 20;
+    if (x + HEDGE_GAP < x0 || x > x1 || y < camY - 80 || y > camY + H + 40) continue;
+    if (!hd.open) {
+      ctx.fillStyle = 'rgba(150,200,230,0.75)';
+      ctx.fillRect(x, y - 26, HEDGE_GAP, 66);
+      ctx.fillStyle = '#5a6a80';
+      ctx.fillRect(x, y - 28, HEDGE_GAP, 4);
+      ctx.fillRect(x + HEDGE_GAP / 2 - 1, y - 26, 2, 66);
+      ctx.fillStyle = '#2a2e36';
+      ctx.fillRect(x + HEDGE_GAP + 4, y - 6, 12, 18);             // lecteur de badge
+      ctx.fillStyle = Math.floor(game.time * 3) % 2 ? '#ff3030' : '#801010';
+      ctx.fillRect(x + HEDGE_GAP + 7, y - 3, 6, 4);
+    } else {
+      ctx.fillStyle = 'rgba(150,200,230,0.6)';
+      ctx.fillRect(x, y - 26, 14, 66);
+      ctx.fillRect(x + HEDGE_GAP - 14, y - 26, 14, 66);
+      ctx.fillStyle = '#2a2e36';
+      ctx.fillRect(x + HEDGE_GAP + 4, y - 6, 12, 18);
+      ctx.fillStyle = '#40e070';
+      ctx.fillRect(x + HEDGE_GAP + 7, y - 3, 6, 4);
+    }
+  }
+}
+
+// Arbres des haies visibles à l'écran (pour les dessiner, triés avec le reste)
+function hedgeTreesInView(camX, camY) {
+  const trees = [];
+  for (const hd of game.hedges || []) {
+    if (hd.y < camY - 140 - HEDGE_CORRIDOR || hd.y > camY + H + 140 + HEDGE_CORRIDOR) continue;
+    const half = HEDGE_GAP / 2;
+    for (let x = Math.floor((camX - 100) / HEDGE_STEP) * HEDGE_STEP; x < camX + W + 100; x += HEDGE_STEP)
+      if (Math.abs(x - hd.gapX) > half + 40) trees.push({ x, y: hd.y });
+    for (let y = hd.y - HEDGE_CORRIDOR + 20; y <= hd.y + HEDGE_CORRIDOR; y += HEDGE_STEP)
+      for (const x of [hd.gapX - half - 15, hd.gapX + half + 15]) trees.push({ x, y });
+  }
+  return trees;
 }
 
 function insidePiRoom(o) {
@@ -705,7 +892,8 @@ function chunkProps(cx, cy) {
   const nearGoal = g && (
     (cx * CHUNK < g.x + g.w + m && (cx + 1) * CHUNK > g.x - m && cy * CHUNK < g.y + g.h + m && (cy + 1) * CHUNK > g.y - m) ||
     (cx === Math.floor(g.badgeX / CHUNK) && cy === Math.floor(g.badgeY / CHUNK))); // badge toujours accessible
-  if (!((cx === 0 || cx === -1) && (cy === 0 || cy === -1)) && !nearGoal) {
+  const inClearZone = (game.clearZones || []).some(z => cx * CHUNK < z.x + z.w && (cx + 1) * CHUNK > z.x && cy * CHUNK < z.y + z.h && (cy + 1) * CHUNK > z.y);
+  if (!((cx === 0 || cx === -1) && (cy === 0 || cy === -1)) && !nearGoal && !inClearZone) {
     const rnd = mulberry32((cx * 73856093) ^ (cy * 19349663));
     const r = rnd();
     let type = null, acc = 0;
@@ -735,7 +923,12 @@ function chunkDecals(cx, cy) {
     for (const [t, w] of LEVELS[game.level].decals || []) if (r < (acc += w)) { type = t; break; }
     if (!type) continue;
     const img = DECALS[type];
-    list.push({ img, x: Math.round(cx * CHUNK + rnd() * (CHUNK - img.width)), y: Math.round(cy * CHUNK + rnd() * (CHUNK - img.height)) });
+    const d = { img, x: Math.round(cx * CHUNK + rnd() * (CHUNK - img.width)), y: Math.round(cy * CHUNK + rnd() * (CHUNK - img.height)) };
+    const overlaps = (r, m) => d.x < r.x + r.w + m && d.x + img.width > r.x - m && d.y < r.y + r.h + m && d.y + img.height > r.y - m;
+    const props = chunkProps(cx, cy).map(pr => ({ x: pr.drawX, y: pr.drawY, w: pr.img.width, h: pr.img.height }));
+    if (props.some(r => overlaps(r, 20)) || list.some(o => overlaps({ x: o.x, y: o.y, w: o.img.width, h: o.img.height }, 10))) continue;
+    if ((game.walls || []).some(r => overlaps(r, 70))) continue; // rien sous les haies, murs et enclos
+    list.push(d);
   }
   decalCache.set(k, list);
   return list;
@@ -1166,6 +1359,202 @@ function pushOutOfRect(o, left, top, right, bottom) {
   }
 }
 
+// ---- Objectifs bonus ----
+const randRange = ([a, b]) => a + Math.random() * (b - a);
+
+// Niveau 1 : espaces de travail fermés (cloisons vitrées, une porte) avec des bureaux, parfois un bonbon
+const WS_LAYOUTS = [
+  { props: [['island', -100, -80], ['island', 100, -80], ['island', -100, 70], ['island', 100, 70]], candy: [0, -5] },
+  { props: [['meeting', 0, -30], ['whiteboard', 0, -120], ['cabinet', -220, -150], ['cabinet', 220, -150], ['plant', -225, 160], ['plant', 225, 160]], candy: [0, 90] },
+  { props: [['island', -100, -60], ['island', 100, -60], ['printer', 190, 120], ['bookshelf', -190, 135], ['plant', 225, -160]], candy: [0, 70] },
+];
+function createWorkspaces() {
+  game.clearZones = game.clearZones || [];
+  game.walls = game.walls || [];
+  game.workspaces = [];
+  const T = WS_WALL, hw = WS_W / 2, hh = WS_H / 2;
+  for (let tries = 0; game.workspaces.length < WS_COUNT && tries < 400; tries++) {
+    const a = Math.random() * Math.PI * 2, d = randRange(WS_DIST), cx = Math.round(Math.cos(a) * d), cy = Math.round(Math.sin(a) * d);
+    if (game.workspaces.some(w => Math.hypot(w.cx - cx, w.cy - cy) < 800)) continue;
+    if ((game.letters || []).some(l => Math.abs(l.x - cx) < hw + 120 && Math.abs(l.y - cy) < hh + 120)) continue;
+    const x = cx - hw, y = cy - hh, side = Math.random() * 4 | 0, half = (WS_W - WS_DOOR) / 2, halfV = (WS_H - WS_DOOR) / 2;
+    const walls = [
+      side === 1 ? [[x, y, half, T], [x + WS_W - half, y, half, T]] : [[x, y, WS_W, T]],                                 // haut
+      side === 0 ? [[x, y + WS_H - T, half, T], [x + WS_W - half, y + WS_H - T, half, T]] : [[x, y + WS_H - T, WS_W, T]], // bas
+      side === 2 ? [[x, y, T, halfV], [x, y + WS_H - halfV, T, halfV]] : [[x, y, T, WS_H]],                               // gauche
+      side === 3 ? [[x + WS_W - T, y, T, halfV], [x + WS_W - T, y + WS_H - halfV, T, halfV]] : [[x + WS_W - T, y, T, WS_H]], // droite
+    ].flat().map(([x, y, w, h]) => ({ x, y, w, h, ws: true }));
+    const layout = WS_LAYOUTS[Math.random() * WS_LAYOUTS.length | 0];
+    const desks = layout.props.map(([type, dx, dy]) => {
+      const def = PROPS[type], px = cx + dx, py = cy + dy;
+      return { type, img: def.img, x: px, y: py, w: def.w, h: def.h, drawX: Math.round(px - def.img.width / 2), drawY: Math.round(py - def.h / 2 - def.top) };
+    });
+    game.walls.push(...walls, ...desks.map(dk => ({ x: dk.x - dk.w / 2, y: dk.y - dk.h / 2, w: dk.w, h: dk.h, desk: true })));
+    game.clearZones.push({ x: x - 80, y: y - 80, w: WS_W + 160, h: WS_H + 160 });
+    if (Math.random() < WS_CANDY_CHANCE) game.pickups.push({ x: cx + layout.candy[0], y: cy + layout.candy[1], kind: 'candy' });
+    game.workspaces.push({ x, y, cx, cy, walls, desks });
+  }
+}
+
+// Sol et cloisons vitrées des espaces de travail (les bureaux sont triés avec le reste)
+function drawWorkspaces(camX, camY) {
+  for (const ws of game.workspaces) {
+    if (ws.x > camX + W + 40 || ws.x + WS_W < camX - 40 || ws.y > camY + H + 60 || ws.y + WS_H < camY - 60) continue;
+    ctx.fillStyle = 'rgba(70,110,160,0.28)';                       // moquette bleutée
+    ctx.fillRect(ws.x, ws.y, WS_W, WS_H);
+    for (const wl of ws.walls) {
+      const horiz = wl.w > wl.h;
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(wl.x + 4, wl.y + wl.h - 2, wl.w, 8);            // ombre au sol
+      ctx.fillStyle = '#b8bec8';
+      ctx.fillRect(wl.x, wl.y - 22, wl.w, wl.h + 22);              // panneau
+      ctx.fillStyle = 'rgba(154,200,224,0.9)';
+      if (horiz) ctx.fillRect(wl.x, wl.y - 18, wl.w, 12);          // bandeau vitré
+      else ctx.fillRect(wl.x + 3, wl.y - 18, wl.w - 6, wl.h + 12);
+      ctx.fillStyle = '#e8ecf0';
+      ctx.fillRect(wl.x, wl.y - 24, wl.w, 3);                      // dessus
+      ctx.fillStyle = '#7a808c';
+      if (horiz) for (let k = wl.x; k < wl.x + wl.w; k += 65) ctx.fillRect(k, wl.y - 22, 3, wl.h + 22); // montants
+    }
+  }
+}
+
+// Niveau 1 : 8 lettres réparties tout autour du départ
+function createLetters() {
+  game.clearZones = game.clearZones || [];
+  game.letters = [...LETTERS_WORD].map((ch, i) => {
+    const a = i / LETTERS_WORD.length * Math.PI * 2 + Math.random() * 0.6, d = randRange(LETTER_DIST);
+    const x = Math.cos(a) * d, y = Math.sin(a) * d;
+    game.clearZones.push({ x: x - 60, y: y - 60, w: 120, h: 120 });
+    return { ch, x, y, got: false };
+  });
+}
+
+// Niveau 4 : 4 enclos (barrière en bois, porte en bas) avec une licorne dedans
+function createPens() {
+  game.clearZones = game.clearZones || [];
+  game.walls = game.walls || [];
+  const a0 = Math.random() * Math.PI * 2, T = PEN_FENCE, side = (PEN_W - PEN_GATE) / 2;
+  game.pens = [0, 1, 2, 3].map(i => {
+    const a = a0 + i * Math.PI / 2 + (Math.random() - 0.5) * 0.6, d = randRange(PEN_DIST);
+    const cx = Math.cos(a) * d, cy = Math.sin(a) * d, x = cx - PEN_W / 2, y = cy - PEN_H / 2;
+    game.clearZones.push({ x: x - 100, y: y - 100, w: PEN_W + 200, h: PEN_H + 200 });
+    game.walls.push(
+      { x, y, w: PEN_W, h: T }, { x, y, w: T, h: PEN_H }, { x: x + PEN_W - T, y, w: T, h: PEN_H },
+      { x, y: y + PEN_H - T, w: side, h: T }, { x: x + PEN_W - side, y: y + PEN_H - T, w: side, h: T },
+    );
+    return { x, y, cx, cy, gateX: cx, gateY: y + PEN_H, found: false };
+  });
+}
+
+// Prochain objectif à montrer avec la flèche (salle PI, lettre la plus proche, enclos le plus proche)
+function objectiveTarget() {
+  const p = game.player, dist = o => Math.hypot(o.x - p.x, o.y - p.y);
+  if (game.goal) {
+    const g = game.goal;
+    if (g.ambush === 'closed') {
+      const angry = game.enemies.filter(e => e.piGuard && !e.dead).sort((a, b) => dist(a) - dist(b))[0];
+      if (angry) return { x: angry.x, y: angry.y, label: `${MASCOT_BOSSES[angry.mascot].icon} Mascotte furieuse`, color: '#ff6a6a' };
+    }
+    const target = game.hasBadge ? { x: g.doorX, y: g.doorY + 30, label: 'Salle PI' } : { x: g.badgeX, y: g.badgeY, label: '🪪 Badge' };
+    // Une haie entre le joueur et l'objectif : on guide vers son passage
+    const blocking = (game.hedges || []).filter(hd => Math.sign(p.y - hd.y) !== Math.sign(target.y - hd.y)).sort((a, b) => Math.abs(p.y - a.y) - Math.abs(p.y - b.y))[0];
+    if (blocking) {
+      if (!blocking.open) {
+        const m = MASCOT_BOSSES[blocking.mascot];
+        const boss = game.enemies.find(e => e.mascotHedge === blocking.index && !e.dead);
+        if (boss) return { x: boss.x, y: boss.y, label: `${m.icon} ${m.name}`, color: '#ff6a6a' };
+        const badge = game.pickups.find(k => k.kind === 'mascotBadge' && k.hedge === blocking.index);
+        if (badge) return { x: badge.x, y: badge.y, label: '🪪 Badge de la mascotte', color: '#ffd040' };
+        return { x: blocking.gapX, y: blocking.y + HEDGE_CORRIDOR + 40, label: '🚪 Passage', color: '#5aae4a' };
+      }
+      const inCorridor = Math.abs(p.y - blocking.y) <= HEDGE_CORRIDOR + 10 && Math.abs(p.x - blocking.gapX) < HEDGE_GAP;
+      const side = Math.sign((inCorridor ? target.y : p.y) - blocking.y) || 1;
+      return { x: blocking.gapX, y: blocking.y + side * (HEDGE_CORRIDOR + 40), label: '🚪 Passage', color: '#5aae4a' };
+    }
+    return target;
+  }
+  if (game.letters) {
+    const left = game.letters.filter(l => !l.got).sort((a, b) => dist(a) - dist(b));
+    if (left.length) return { x: left[0].x, y: left[0].y, label: `Lettre ${left[0].ch}`, color: '#ffd040' };
+  }
+  if (game.pens) {
+    const left = game.pens.filter(pn => !pn.found).map(pn => ({ x: pn.gateX, y: pn.gateY + 30, pen: pn })).sort((a, b) => dist(a) - dist(b));
+    if (left.length) return { x: left[0].x, y: left[0].y, label: '🦄 Licorne', color: '#ff9ad0' };
+  }
+  return null;
+}
+
+function updateObjectives(dt) {
+  const p = game.player;
+  // Lettres : on les ramasse en marchant dessus
+  if (game.letters) {
+    for (const l of game.letters) {
+      if (l.got || Math.hypot(l.x - p.x, l.y - p.y) > p.r + 22) continue;
+      l.got = true;
+      const n = game.letters.filter(x => x.got).length;
+      Sfx.ticket();
+      game.banner = { text: `🔤 Lettre ${l.ch} trouvée ! (${n}/${LETTERS_WORD.length})`, t: 2.5 };
+      for (let i = 0; i < 16; i++) {
+        const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 90;
+        game.particles.push({ x: l.x, y: l.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: 0.6, color: i % 2 ? '#ffd040' : '#fff' });
+      }
+      if (n === LETTERS_WORD.length) startParty();
+    }
+  }
+  if (game.party && (game.party.t += dt) >= PARTY_TIME) game.party = null;
+  // Enclos : en entrant, on trouve la licorne… et une vague d'ennemis débarque
+  if (game.pens) {
+    for (const pn of game.pens) {
+      if (pn.found || p.x < pn.x + PEN_FENCE || p.x > pn.x + PEN_W - PEN_FENCE || p.y < pn.y + PEN_FENCE || p.y > pn.y + PEN_H - PEN_FENCE) continue;
+      pn.found = true;
+      const n = game.pens.filter(x => x.found).length;
+      Sfx.fart();
+      Sfx.boss();
+      game.banner = { text: `🦄 Licorne trouvée ! (${n}/4) … attention, ça arrive !`, t: 3 };
+      for (let i = 0; i < PEN_WAVE; i++) {
+        const a = Math.random() * Math.PI * 2, d = 260 + Math.random() * 120;
+        spawnEnemyAt(pickEnemyType(), pn.cx + Math.cos(a) * d, pn.cy + Math.sin(a) * d);
+      }
+      if (n === 4) startMount();
+    }
+  }
+  // Monture : prout magique qui blesse tout autour, de temps en temps
+  if (game.mount && (game.mount.fartT -= dt) <= 0) {
+    game.mount.fartT = randRange(MOUNT_FART_EVERY);
+    Sfx.fart();
+    game.effects.push({ type: 'rainbowFart', x: p.x, y: p.y, r: MOUNT_FART_R, t: 0, life: 0.9 });
+    const prev = dmgSource;
+    dmgSource = 'unicorn';
+    queryEnemies(p.x, p.y, MOUNT_FART_R + 40, e => {
+      if (e.dead || e.prop) return;
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      if (d < MOUNT_FART_R + e.r) hitEnemy(e, MOUNT_FART_DMG + 12 * stageAt(game.time), dx / d * 220, dy / d * 220);
+    });
+    dmgSource = prev;
+  }
+}
+
+// Toutes les lettres : toute la Delivery Team arrive et danse autour du joueur, +40 % de dégâts
+function startParty() {
+  const p = game.player;
+  p.might += PARTY_DMG;
+  game.party = { t: 0, dancers: Object.keys(CHARACTERS).filter(id => id !== p.charId) };
+  game.banner = { text: `🎉 D-E-L-I-V-E-R-Y ! Toute la team est là : +${PARTY_DMG * 100} % de dégâts !`, t: 4 };
+  game.flash = 0.5;
+  Sfx.legendary();
+}
+
+// Les 4 licornes : on en chevauche une jusqu'à la fin de la partie
+function startMount() {
+  const p = game.player;
+  p.speed *= MOUNT_SPEED;
+  game.mount = { fartT: 3 };
+  game.banner = { text: '🦄 En selle sur la licorne !', t: 4 };
+  game.flash = 0.5;
+  Sfx.legendary();
+}
+
 // ---- Niveau 4 : pluies de chocolat ----
 function updateChocolate(dt) {
   const p = game.player;
@@ -1203,6 +1592,110 @@ function eatChocolate() {
 // Largeur du personnage : il grossit avec le malus chocolat (et retrouve sa taille en courant)
 const chocoFat = () => 1 + Math.min(0.8, game.choco.slow * CHOCO_FAT);
 
+// ---- Menu pause : portrait du personnage tel qu'il est (costume, chocolat, licorne, badge), vu de près ----
+function drawPauseChar() {
+  const c = document.getElementById('pauseChar'), g = c.getContext('2d'), p = game.player;
+  const img = walkImage(skinSprites(p.charId), 1, false, 0), fat = chocoFat(), fw = img.width * fat;
+  // Boîte englobante (personnage, et licorne en dessous si on est en selle)
+  const ride = game.mount ? -20 : 0, u = PROP_IMAGES.unicorn;
+  let x0 = -fw / 2, x1 = fw / 2, y0 = ride - img.height / 2, y1 = ride + img.height / 2;
+  if (game.mount) { x0 = Math.min(x0, -u.width / 2); x1 = Math.max(x1, u.width / 2); y1 = Math.max(y1, 6 + u.height / 2); }
+  const k = Math.min((c.width - 16) / (x1 - x0), (c.height - 16) / (y1 - y0));
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, c.width, c.height);
+  g.imageSmoothingEnabled = false;
+  g.setTransform(k, 0, 0, k, c.width / 2 - (x0 + x1) / 2 * k, c.height / 2 - (y0 + y1) / 2 * k);
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  g.beginPath(); g.ellipse(0, (game.mount ? 6 + u.height / 2 : img.height / 2) - 2, 14, 4, 0, 0, Math.PI * 2); g.fill();
+  if (game.mount) g.drawImage(u, -u.width / 2, 6 - u.height / 2);
+  g.drawImage(img, -fw / 2, ride - img.height / 2, fw, img.height);
+  if (game.badgeMode) {
+    const top = ride - img.height / 2, neckY = top + img.height * 0.42, cardY = top + img.height * 0.6;
+    g.strokeStyle = BADGE_MODES[game.badgeMode].color;
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-7, neckY); g.lineTo(0, cardY); g.lineTo(7, neckY); g.stroke();
+    g.fillStyle = '#f4f6fa'; g.fillRect(-4, cardY, 8, 9);
+    g.fillStyle = '#1423dc'; g.fillRect(-3, cardY + 1, 3, 3);
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// ---- Menu pause : carte centrée sur le joueur ----
+const MAP_RANGE = 3200; // distance montrée de chaque côté du joueur
+const MAP_FLOOR = { floor: '#3a4250', parquet: '#6a4a30', datacenter: '#2a3040', fairy: '#4a7a46' };
+function drawPauseMap() {
+  const c = document.getElementById('pauseMap'), g = c.getContext('2d'), S = c.width, p = game.player;
+  const k = S / (MAP_RANGE * 2), mx = wx => S / 2 + (wx - p.x) * k, my = wy => S / 2 + (wy - p.y) * k;
+  const inMap = (x, y) => x >= 0 && x <= S && y >= 0 && y <= S;
+  const legend = new Set();
+  // Fond, puis zones déjà générées (explorées) un peu plus claires avec leurs meubles
+  g.fillStyle = '#10141c';
+  g.fillRect(0, 0, S, S);
+  for (const [key, props] of chunkCache) {
+    const cx = Math.floor(key / 65536) - 32768, cy = key % 65536 - 32768;
+    const x = mx(cx * CHUNK), y = my(cy * CHUNK), w = CHUNK * k;
+    if (x + w < 0 || x > S || y + w < 0 || y > S) continue;
+    g.fillStyle = MAP_FLOOR[LEVELS[game.level].floor] || '#3a4250';
+    g.fillRect(x, y, w + 0.5, w + 0.5);
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    for (const pr of props) if (!pr.broken) g.fillRect(mx(pr.x - pr.w / 2), my(pr.y - pr.h / 2), Math.max(1.5, pr.w * k), Math.max(1.5, pr.h * k));
+  }
+  // Murs, cloisons, enclos, portes
+  for (const wl of game.walls || []) {
+    g.fillStyle = wl.hedgeDoor !== undefined || wl.door ? '#ff5050' : '#d8dce4';
+    g.fillRect(mx(wl.x), my(wl.y), Math.max(2, wl.w * k), Math.max(2, wl.h * k));
+  }
+  // Objectifs : icône à sa place, ou au bord de la carte s'il est plus loin
+  const icon = (wx, wy, txt, color, label) => {
+    let x = mx(wx), y = my(wy);
+    const far = !inMap(x, y);
+    x = Math.max(10, Math.min(S - 10, x));
+    y = Math.max(10, Math.min(S - 10, y));
+    g.fillStyle = color;
+    g.beginPath(); g.arc(x, y, far ? 6 : 8, 0, Math.PI * 2); g.fill();
+    g.font = 'bold ' + (far ? 9 : 11) + 'px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#1a1206';
+    g.fillText(txt, x, y + 1);
+    if (label) legend.add(label);
+  };
+  const gl = game.goal;
+  if (gl) {
+    g.fillStyle = '#4a6aff';
+    g.fillRect(mx(gl.x), my(gl.y), gl.w * k, gl.h * k);
+    icon(gl.doorX, gl.doorY, '🎯', '#4a6aff', '🎯 Salle PI');
+    if (!game.hasBadge) icon(gl.badgeX, gl.badgeY, '🪪', '#ffd040', '🪪 Badge');
+  }
+  if (game.server) icon(game.server.x, game.server.y, '🖥️', '#40c0ff', '🖥️ Serveur de prod');
+  for (const l of game.letters || []) if (!l.got) icon(l.x, l.y, l.ch, '#ffd040', '🔤 Lettres DELIVERY');
+  for (const pn of game.pens || []) if (!pn.found) icon(pn.cx, pn.cy, '🦄', '#ff9ad0', '🦄 Enclos à licorne');
+  for (const pk of game.pickups) {
+    if (pk.kind === 'chest') icon(pk.x, pk.y, '🎁', '#f0c030', '🎁 Coffre');
+    else if (pk.kind === 'mascotBadge') icon(pk.x, pk.y, '🪪', '#ffd040', '🪪 Badge de mascotte');
+    else if (pk.kind === 'magnet') icon(pk.x, pk.y, '🧲', '#4a6aff', '🧲 Boule aimant');
+  }
+  // Ennemis (points rouges) et directeurs / mascottes (gros points)
+  for (const e of game.enemies) {
+    if (e.dead || e.prop) continue;
+    const x = mx(e.x), y = my(e.y);
+    if (e.boss) { icon(e.x, e.y, '👔', '#e03040', '👔 Boss'); continue; }
+    if (!inMap(x, y)) continue;
+    g.fillStyle = e.elite ? '#ff8040' : 'rgba(255,80,80,0.7)';
+    g.fillRect(x - 1, y - 1, e.elite ? 4 : 2, e.elite ? 4 : 2);
+  }
+  // Le joueur : flèche blanche dans le sens de la marche
+  const a = Math.atan2(p.facing.y, p.facing.x);
+  g.save();
+  g.translate(S / 2, S / 2);
+  g.rotate(a);
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#000';
+  g.lineWidth = 2;
+  g.beginPath(); g.moveTo(9, 0); g.lineTo(-6, -6); g.lineTo(-3, 0); g.lineTo(-6, 6); g.closePath();
+  g.stroke(); g.fill();
+  g.restore();
+  document.getElementById('mapLegend').textContent = ['➤ Toi', ...legend].join(' · ') + ` · Zone affichée : ${Math.round(MAP_RANGE * 2 / 40)} m de large`;
+}
+
 // ---- Menu pause : résumé de ce qu'on a acquis et de ce que ça donne ----
 function renderPauseSummary() {
   const p = game.player, c = CHARACTERS[p.charId], b = charBonus(c), ch = game.choco;
@@ -1239,6 +1732,9 @@ function renderPauseSummary() {
       <h3>Ce que ça te donne</h3>
       <table class="sum-stats">${stats || '<tr><td>Rien de plus que le personnage de base</td></tr>'}</table>
       ${LEVELS[game.level].chocolate ? `<p class="sum-bonus">🍫 ${ch.eaten} chocolat(s) mangé(s) : ${pct(ch.dmg)} de dégâts, ${pct(-ch.slow)} de vitesse</p>` : ''}
+      ${game.badgeMode ? `<p class="sum-bonus">🪪 ${BADGE_MODES[game.badgeMode].name} : +${Math.round(BADGE_MODES[game.badgeMode].dmg * 100)} % de dégâts, +${Math.round(BADGE_MODES[game.badgeMode].speed * 100)} % de vitesse, +${fmtPct(BADGE_MODES[game.badgeMode].xp)} % d'XP</p>` : ''}
+      ${game.mount ? `<p class="sum-bonus">🦄 Sur la licorne : +${Math.round((MOUNT_SPEED - 1) * 100)} % de vitesse et un prout magique toutes les ${MOUNT_FART_EVERY[0]} à ${MOUNT_FART_EVERY[1]} s, qui blesse tout autour</p>` : ''}
+      ${game.letters && game.letters.every(l => l.got) ? `<p class="sum-bonus">🔤 DELIVERY complet : +${PARTY_DMG * 100} % de dégâts</p>` : ''}
     </div>`;
 }
 
@@ -1288,6 +1784,8 @@ function spawnBoss(text, kind = game.bossOrder[game.bossCount++ % game.bossOrder
 
 // Répliques d'un directeur (ou du monstre qui le remplace au niveau 4) et clé de sa voix enregistrée
 function bossLines(e) {
+  if (e.mascot && e.angry) { const m = MASCOT_BOSSES[e.mascot]; return { lines: { arrival: m.angry, taunts: m.angryTaunts }, voice: 'mascot_' + e.mascot + '_angry' }; }
+  if (e.mascot) return { lines: MASCOT_BOSSES[e.mascot], voice: 'mascot_' + e.mascot };
   return LEVELS[game.level].monsters
     ? { lines: FAIRY_BOSSES[e.kind], voice: 'fboss_' + e.kind }
     : { lines: BOSS_LINES[e.kind], voice: 'boss_' + e.kind };
@@ -1312,7 +1810,7 @@ function enemyBehavior(e, dt, dx, dy, dist, spd) {
     }
   }
   if (e.stun > 0) return null;
-  const abilities = e.boss ? BOSS_TYPES[e.kind].ai : ENEMIES[e.type].ai ? [ENEMIES[e.type].ai] : [];
+  const abilities = e.boss ? (e.aiList || BOSS_TYPES[e.kind].ai) : ENEMIES[e.type].ai ? [ENEMIES[e.type].ai] : [];
   let move = null;
   for (const ai of abilities) {
     if (ai === 'charge') {
@@ -1431,6 +1929,9 @@ function killEnemy(e) {
   Sfx.kill();
   game.gems.push({ x: e.x, y: e.y, value: e.xp, magnet: false, speed: 0 });
   if (e.elite || Math.random() < HEAL_DROP_CHANCE) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'medkit', life: e.elite ? undefined : HEAL_DROP_LIFE });
+  if (e.mascotHedge !== undefined) game.pickups.push({ x: e.x - 20, y: e.y, kind: 'mascotBadge', hedge: e.mascotHedge });
+  if (!e.boss && Math.random() < MAGNET_DROP_CHANCE && !game.pickups.some(k => k.kind === 'magnet'))
+    game.pickups.push({ x: e.x, y: e.y, kind: 'magnet', life: MAGNET_LIFE });
   if (e.boss) {
     game.bossKills++;
     game.fatality = 2.2;
@@ -1495,7 +1996,7 @@ function gainXp(v) {
 function update(dt) {
   game.time += dt;
   const p = game.player;
-  if (game.time >= levelDuration()) { endGame(!game.goal); return; } // niveau 2 : à 18h00 la PI est finie
+  if (!game.endless && game.time >= levelDuration()) { endGame(!game.goal); return; } // niveau 2 : à 18h00 la PI est finie
   if (game.goal) {
     const g = game.goal;
     if ((g.talkT -= dt) <= 0) { // les orateurs parlent à tour de rôle
@@ -1504,11 +2005,36 @@ function update(dt) {
       g.line = PI_TALK[Math.random() * PI_TALK.length | 0];
     }
     if (!game.hasBadge) {
-      if (Math.hypot(p.x - g.badgeX, p.y - g.badgeY) < p.r + 22) {
+      const badgeDist = Math.hypot(p.x - g.badgeX, p.y - g.badgeY);
+      // Les gardes apparaissent quand on approche, et dansent en ronde autour du badge
+      if (!g.guardsSpawned && badgeDist < 900) {
+        g.guardsSpawned = true;
+        for (let i = 0; i < BADGE_GUARDS; i++) {
+          spawnEnemyAt(i % 2 ? 'commercial' : 'coworker', g.badgeX, g.badgeY);
+          const e = game.enemies[game.enemies.length - 1];
+          e.hp = e.maxHp = e.hp * BADGE_GUARD_HP;
+          e.guard = { a: i / BADGE_GUARDS * Math.PI * 2 };
+        }
+        game.banner = { text: '💃 Le badge est gardé : élimine les danseurs !', t: 3 };
+      }
+      const guards = game.enemies.filter(e => e.guard && !e.dead).length;
+      if (badgeDist < p.r + 22 && g.guardsSpawned && guards > 0 && (g.guardHintT = (g.guardHintT || 0) - dt) <= 0) {
+        g.guardHintT = 3;
+        game.banner = { text: `🔒 Encore ${guards} garde(s) à éliminer pour prendre le badge !`, t: 2.5 };
+      }
+      if (badgeDist < p.r + 22 && g.guardsSpawned && guards === 0) {
         game.hasBadge = true;
         Sfx.chest();
+        g.doorWall = game.walls.find(wl => wl.door);
         game.walls = game.walls.filter(wl => !wl.door); // la porte s'ouvre
-        game.banner = { text: '🪪 Badge récupéré ! Direction la salle PI', t: 3.5 };
+        // Collier rouge → Prestataire, collier bleu → Interne
+        const mode = Math.floor(game.time / BADGE_COLOR_TIME) % 2 ? 'interne' : 'presta', m = BADGE_MODES[mode];
+        game.badgeMode = mode;
+        p.might += m.dmg;
+        p.speed *= 1 + m.speed;
+        p.xpMult *= 1 + m.xp;
+        game.flash = 0.4;
+        game.banner = { text: `🪪 ${m.name} activé !`, t: 3.5 };
         for (let i = 0; i < 20; i++) {
           const pa = Math.random() * Math.PI * 2, s = 60 + Math.random() * 80;
           game.particles.push({ x: g.badgeX, y: g.badgeY, vx: Math.cos(pa) * s, vy: Math.sin(pa) * s, t: 0, life: 0.6, color: i % 2 ? '#96cd32' : '#ffd866' });
@@ -1517,6 +2043,28 @@ function update(dt) {
         g.lockedHintT = 4;
         game.banner = { text: '🔒 Porte verrouillée : va chercher ton badge !', t: 2.5 };
       }
+    }
+  }
+  if (game.goal && game.hasBadge) {
+    const g = game.goal;
+    if (!g.ambush && p.y > g.doorY && Math.hypot(p.x - g.doorX, p.y - g.doorY) < PI_AMBUSH_R) {
+      g.ambush = 'closed';
+      if (g.doorWall) game.walls.push(g.doorWall); // la porte claque
+      Object.keys(MASCOT_BOSSES).forEach((k, i) => {
+        const m = MASCOT_BOSSES[k];
+        spawnEnemy('director', 'boss');
+        const e = game.enemies[game.enemies.length - 1];
+        Object.assign(e, { kind: 'mascot', mascot: k, angry: true, piGuard: true, name: m.name + ' (furieux)', sprite: m.sprite + 'Hurt', aiList: m.ai,
+          x: g.doorX + (i ? 130 : -130), y: g.doorY + 150, hp: e.hp * PI_AMBUSH_HP, maxHp: e.maxHp * PI_AMBUSH_HP });
+      });
+      Sfx.boss();
+      game.flash = 0.3;
+      game.banner = { text: '😠 La porte claque ! Les mascottes sont de retour… et pas contentes !', t: 3.5 };
+    } else if (g.ambush === 'closed' && !game.enemies.some(e => e.piGuard && !e.dead)) {
+      g.ambush = 'open';
+      game.walls = game.walls.filter(wl => !wl.door);
+      Sfx.chest();
+      game.banner = { text: '🚪 Les mascottes sont K.O. : la porte de la salle PI se rouvre !', t: 3 };
     }
   }
   if (game.banner && (game.banner.t -= dt) <= 0) game.banner = null;
@@ -1659,11 +2207,15 @@ function update(dt) {
   }
   game.eliteTimer -= dt;
   if (game.eliteTimer <= 0) { game.eliteTimer = 60; spawnEnemy(pickEnemyType(), 'elite'); }
-  if (game.bossIndex < BOSS_TIMES.length && game.time >= BOSS_TIMES[game.bossIndex]) {
+  const nextBoss = game.bossIndex < BOSS_TIMES.length ? BOSS_TIMES[game.bossIndex]
+    : game.endless ? BOSS_TIMES[BOSS_TIMES.length - 1] + (game.bossIndex - BOSS_TIMES.length + 1) * ENDLESS_BOSS_EVERY : Infinity;
+  if (game.time >= nextBoss) {
     spawnBoss('⚠ Le {name} arrive !', game.bossOrder[game.bossIndex % game.bossOrder.length]);
     game.bossIndex++;
   }
   if (LEVELS[game.level].chocolate) updateChocolate(dt);
+  updateObjectives(dt);
+  if (game.hedges) updateHedgeDoors();
   // Événements aléatoires et tickets au sol
   if (game.event && (game.event.t -= dt) <= 0) game.event = null;
   if ((game.eventT -= dt) <= 0) {
@@ -1700,6 +2252,18 @@ function update(dt) {
       // Plante immobile ; trop loin, on la rend au décor (sans la casser)
       e.flash -= dt;
       if (dist > CHUNK * 4) { e.dead = true; e.prop.entity = null; }
+      continue;
+    }
+    if (e.guard && game.goal) {
+      const gl = game.goal;
+      e.guard.a += dt * 1.4;
+      const r = BADGE_GUARD_R + Math.sin(game.time * 4 + e.guard.a * 3) * 10; // la ronde « respire » comme une danse
+      e.x = gl.badgeX + Math.cos(e.guard.a) * r + e.kx * 0.05;
+      e.y = gl.badgeY + Math.sin(e.guard.a) * r * 0.75 + e.ky * 0.05;
+      e.kx *= decay; e.ky *= decay;
+      e.flash -= dt;
+      if (e.stun > 0) e.stun -= dt;
+      if (dist < e.r + p.r && p.invuln <= 0 && game.state === 'play') damagePlayer(e.dmg);
       continue;
     }
     let spd = e.slow > 0 ? e.speed * 0.5 : e.speed; // éméché par l'apéro : moitié moins vite
@@ -1751,12 +2315,20 @@ function update(dt) {
   // Armes
   for (const w of game.weapons) {
     const def = WEAPONS[w.id], np = game.projectiles.length, ne = game.effects.length;
+    const spaced = !CONTINUOUS_WEAPONS.has(w.id);
+    // Une autre arme vient de tirer : celle-ci attend son tour (on la retient juste au-dessus de 0)
+    const sinceFire = game.time - (game.lastFireT ?? -9);
+    if (spaced && w.timer - dt <= 0 && sinceFire < FIRE_SPACING) w.timer = dt + (FIRE_SPACING - sinceFire);
     const timerBefore = w.timer, dmgBefore = statOf(w.id).dmg;
     dmgSource = w.id;
     def.update(w, dt, def.stats(w.level));
     // Son de l'arme : quand elle tire (recharge relancée ou nouveaux projectiles / coups) ;
     // le café et les post-it (sans tir) sonnent quand ils touchent ; la couche sonne à l'impact
     const fired = w.timer > timerBefore || game.projectiles.length > np || game.effects.length > ne;
+    if (spaced && fired && w.timer > timerBefore) {
+      game.lastFireT = game.time;
+      w.timer *= 1 - FIRE_JITTER + Math.random() * FIRE_JITTER * 2; // petite variation de la recharge
+    }
     if (SOUND_ON_HIT.has(w.id) ? statOf(w.id).dmg > dmgBefore : fired && w.id !== 'diaper') Sfx.weapon(w.id);
     // Ce que l'arme vient de créer prend son niveau (effet visuel) et son nom (statistiques)
     for (let i = np; i < game.projectiles.length; i++) Object.assign(game.projectiles[i], { lvl: visualLevel(w), src: w.id });
@@ -1847,6 +2419,23 @@ function update(dt) {
       pk.dead = true;
       if (pk.kind === 'chocolate') {
         eatChocolate();
+      } else if (pk.kind === 'mascotBadge') {
+        openHedgeDoor(pk.hedge);
+      } else if (pk.kind === 'magnet') {
+        // Toutes les gemmes de la carte filent vers le joueur
+        for (const gm of game.gems) { gm.magnet = true; gm.speed = Math.max(gm.speed, 350); }
+        Sfx.legendary();
+        game.banner = { text: "🧲 Aimant : toutes les gemmes d'XP arrivent !", t: 2.5 };
+      } else if (pk.kind === 'candy') {
+        Sfx.ticket();
+        const xp = Math.max(1, Math.round(p.xpNext * (CANDY_XP[0] + Math.random() * (CANDY_XP[1] - CANDY_XP[0]))));
+        gainXp(xp / p.xpMult);
+        game.texts.push({ x: p.x, y: p.y - 34, text: `🍬 +${xp} XP`, t: 0, life: 1.4, color: '#ff9ad0' });
+        for (let i = 0; i < CANDY_WAVE; i++) {
+          const a = Math.random() * Math.PI * 2, d = 280 + Math.random() * 140;
+          spawnEnemyAt(pickEnemyType(), p.x + Math.cos(a) * d, p.y + Math.sin(a) * d);
+        }
+        game.banner = { text: '🍬 Le bonbon attire les gourmands : une vague arrive !', t: 2.5 };
       } else if (pk.kind === 'chest') {
         openChest();
       } else if (pk.kind === 'ticket') {
@@ -2014,6 +2603,12 @@ function hide(id) { document.getElementById(id).classList.add('hidden'); syncAud
 
 // Contrôles du son en haut à droite : visibles sur les écrans de choix du personnage et du niveau
 function syncAudioCtl() {
+  // Version du jeu : visible sur l'écran titre, le choix du personnage et du niveau
+  const tag = document.getElementById('versionTag');
+  if (tag) {
+    tag.textContent = GAME_VERSION;
+    tag.classList.toggle('hidden', !['title', 'start', 'levels'].some(id => !document.getElementById(id).classList.contains('hidden')));
+  }
   const ctl = document.getElementById('audioCtl');
   if (!ctl) return;
   const visible = ['start', 'levels'].some(id => !document.getElementById(id).classList.contains('hidden'));
@@ -2059,8 +2654,10 @@ document.getElementById('resumeBtn').onclick = () => togglePause();
 document.getElementById('musicBtn').onclick = () => { Sfx.toggleMusic(); renderSoundButtons(); };
 document.getElementById('sfxBtn').onclick = () => { Sfx.toggleSfx(); renderSoundButtons(); };
 
+syncAudioCtl();
+
 function togglePause() {
-  if (game.state === 'play') { game.state = 'pause'; renderSoundButtons(); renderPauseSummary(); show('pause'); }
+  if (game.state === 'play') { game.state = 'pause'; renderSoundButtons(); renderPauseSummary(); drawPauseMap(); drawPauseChar(); show('pause'); }
   else if (game.state === 'pause') { game.state = 'play'; hide('pause'); }
 }
 
@@ -2086,7 +2683,7 @@ function endGame(won) {
   game.score = computeScore(won);
   game.won = won;
   const d = diff();
-  document.getElementById('stats').innerHTML += `<br>Difficulté : <b>${d.icon} ${d.name}</b><br>Score : <b class="score">${game.score.toLocaleString('fr-FR')}</b>${d.score !== 1 ? ` <small>(×${String(d.score).replace('.', ',')})</small>` : ''}`;
+  document.getElementById('stats').innerHTML += `<br>Difficulté : <b>${d.icon} ${d.name}</b>${game.endless ? ' · <b>♾️ Mode infini</b>' : ''}<br>Score : <b class="score">${game.score.toLocaleString('fr-FR')}</b>${d.score !== 1 ? ` <small>(×${String(d.score).replace('.', ',')})</small>` : ''}`;
   document.getElementById('dmgStats').innerHTML = damageTable();
   if (Leaderboard.enabled) openEndLeaderboard();
   show('gameover');
@@ -2120,7 +2717,7 @@ async function openEndLeaderboard() {
 
 async function refreshEndBoard(mine) {
   const box = document.getElementById('lbTable');
-  try { box.innerHTML = leaderboardTable(await Leaderboard.top(game.level), mine); }
+  try { box.innerHTML = leaderboardTable(await Leaderboard.top(boardKey(game.level, game.endless)), mine); }
   catch (e) { box.innerHTML = '<p class="help">Classement indisponible (connexion ?)</p>'; }
 }
 
@@ -2135,7 +2732,7 @@ async function sendScore() {
   status.textContent = 'Envoi…';
   const entry = { name, char: game.player.charId, score: game.score, won: game.won, time: Math.floor(game.time), kills: game.kills, diff: game.diff };
   try {
-    await Leaderboard.submit(game.level, entry);
+    await Leaderboard.submit(boardKey(game.level, game.endless), entry);
     status.textContent = '✅ Score envoyé !';
     refreshEndBoard(entry);
   } catch (e) {
@@ -2147,18 +2744,25 @@ async function sendScore() {
 document.getElementById('lbSend').onclick = sendScore;
 
 // Fenêtre « Classement » depuis le choix du niveau, un onglet par niveau
-let boardLevel = 'gtar';
-async function showBoard(level = boardLevel) {
+let boardLevel = 'gtar', boardEndless = false;
+async function showBoard(level = boardLevel, endless = boardEndless) {
   boardLevel = level;
+  boardEndless = endless;
   const tabs = document.getElementById('boardTabs');
   tabs.innerHTML = '';
   for (const [id, lv] of Object.entries(LEVELS)) {
     const b = document.createElement('button');
     b.textContent = `${lv.icon} ${lv.name}`;
     b.className = id === level ? 'active' : '';
-    b.onclick = () => showBoard(id);
+    b.onclick = () => showBoard(id, boardEndless);
     tabs.appendChild(b);
   }
+  const inf = document.createElement('button'); // bascule classement normal / infini
+  inf.textContent = '♾️ Infini';
+  inf.className = endless ? 'active' : '';
+  inf.onclick = () => showBoard(boardLevel, !boardEndless);
+  tabs.appendChild(inf);
+  level = boardKey(level, endless);
   const box = document.getElementById('boardTable');
   box.innerHTML = '<p class="help">Chargement…</p>';
   show('board');
@@ -2167,11 +2771,12 @@ async function showBoard(level = boardLevel) {
 }
 document.getElementById('backToTitle').onclick = () => { hide('start'); game.state = 'title'; show('title'); };
 document.getElementById('backToChars').onclick = () => { hide('levels'); openCharSelect(); };
-document.getElementById('boardBtn').onclick = () => showBoard(selectedLevel);
+document.getElementById('boardBtn').onclick = () => showBoard(selectedLevel, selectedEndless);
 document.getElementById('boardClose').onclick = () => hide('board');
 
 // Tableau des dégâts par source, de la plus efficace à la moins efficace
 const EXTRA_SOURCES = {
+  unicorn: { icon: '🦄', name: 'Prouts de licorne' },
   follower: { icon: '🧑‍💼', name: 'Collègue de Sheryna' },
   printer:  { icon: '🖨️', name: 'Imprimantes explosives' },
 };
@@ -2205,8 +2810,8 @@ function formatTime(t) {
 // Heure de bureau : début → fin du niveau (9h00 → 18h00, ou 17h00 → 18h00 pour la MEP)
 function officeClock(t) {
   const [h0, h1] = (game && LEVELS[game.level].hours) || [9, 18], d = levelDuration();
-  const m = h0 * 60 + Math.min(t, d) / d * (h1 - h0) * 60;
-  return `${Math.floor(m / 60)}h${String(Math.floor(m % 60)).padStart(2, '0')}`;
+  const m = h0 * 60 + (game && game.endless ? t : Math.min(t, d)) / d * (h1 - h0) * 60;
+  return `${Math.floor(m / 60) % 24}h${String(Math.floor(m % 60)).padStart(2, '0')}`;
 }
 
 // ---- Rendu ----
@@ -2227,18 +2832,63 @@ function draw() {
     for (let cy = Math.floor((camY - 120) / CHUNK); cy <= Math.floor((camY + H) / CHUNK); cy++)
       for (const d of chunkDecals(cx, cy)) ctx.drawImage(d.img, d.x, d.y);
 
+  // Niveau 2 : cloisons de bureau et portes des couloirs
+  if (game.hedges) drawHedgeWalls(camX, camY);
+  // Niveau 1 : espaces de travail fermés
+  if (game.workspaces) drawWorkspaces(camX, camY);
+
   // Salle PI
   const g = game.goal;
   if (g && g.x < camX + W && g.x + g.w > camX && g.y - 60 < camY + H && g.y + g.h + 20 > camY) drawPiRoom(g);
+  // Niveau 1 : lettres dorées à ramasser
+  if (game.letters) for (const l of game.letters) {
+    if (l.got || !inView(l.x, l.y)) continue;
+    const bob = Math.sin(game.time * 3 + l.x) * 3;
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(l.x, l.y, 40, '#ffd040', 0.45 + Math.sin(game.time * 5) * 0.1);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#c88a10';
+    ctx.beginPath(); ctx.arc(l.x, l.y + bob, 17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd040';
+    ctx.beginPath(); ctx.arc(l.x, l.y + bob - 1, 15, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "16px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#5a2a00';
+    ctx.fillText(l.ch, l.x + 1, l.y + bob + 1);
+    ctx.textBaseline = 'alphabetic';
+  }
+  // Niveau 4 : enclos des licornes (barrière en bois, licorne qui pète dedans)
+  if (game.pens) for (const pn of game.pens) {
+    if (!inView(pn.cx, pn.cy, PEN_W)) continue;
+    ctx.fillStyle = 'rgba(120,200,110,0.35)';
+    ctx.fillRect(pn.x, pn.y, PEN_W, PEN_H);
+    const side = (PEN_W - PEN_GATE) / 2;
+    for (const [x, y, w, h] of [[pn.x, pn.y, PEN_W, PEN_FENCE], [pn.x, pn.y, PEN_FENCE, PEN_H], [pn.x + PEN_W - PEN_FENCE, pn.y, PEN_FENCE, PEN_H],
+      [pn.x, pn.y + PEN_H - PEN_FENCE, side, PEN_FENCE], [pn.x + PEN_W - side, pn.y + PEN_H - PEN_FENCE, side, PEN_FENCE]]) {
+      ctx.fillStyle = '#8a5a2a'; ctx.fillRect(x, y + 2, w, h - 4);
+      ctx.fillStyle = '#b07a40'; ctx.fillRect(x, y + 2, w, 3);
+      ctx.fillStyle = '#5a3a1a';
+      for (let k = 0; k <= Math.max(w, h); k += 30) ctx.fillRect(w > h ? x + k : x + 1, w > h ? y - 3 : y + k, 6, 14); // piquets
+    }
+    if (!pn.found) {
+      const img = PROP_IMAGES.unicorn;
+      pn.prop = pn.prop || { type: 'unicorn', x: pn.cx, y: pn.cy, drawX: Math.round(pn.cx - img.width / 2), drawY: Math.round(pn.cy - img.height / 2) };
+      drawProp(pn.prop, img);
+    }
+  }
+
   // Badge à récupérer : posé au sol, brille et flotte
   if (g && !game.hasBadge && inView(g.badgeX, g.badgeY)) {
     const glow = 34 + Math.sin(game.time * 5) * 6;
+    const blue = Math.floor(game.time / BADGE_COLOR_TIME) % 2 === 1, rgb = blue ? '47,111,208' : '208,48,48';
     const gr = ctx.createRadialGradient(g.badgeX, g.badgeY, 0, g.badgeX, g.badgeY, glow);
-    gr.addColorStop(0, 'rgba(150,205,50,0.6)');
-    gr.addColorStop(1, 'rgba(150,205,50,0)');
+    gr.addColorStop(0, `rgba(${rgb},0.6)`);
+    gr.addColorStop(1, `rgba(${rgb},0)`);
     ctx.fillStyle = gr;
     ctx.fillRect(g.badgeX - glow, g.badgeY - glow, glow * 2, glow * 2);
-    const img = Textures.badge;
+    const img = blue ? Textures.badgeBlue : Textures.badge;
     ctx.drawImage(img, Math.round(g.badgeX - img.width / 2), Math.round(g.badgeY - img.height / 2 + Math.sin(game.time * 3) * 3));
   }
 
@@ -2341,10 +2991,10 @@ function draw() {
   for (const pk of game.pickups) {
     if (pk.life !== undefined && pk.life < 3 && Math.floor(game.time * 8) % 2) continue; // va disparaître : clignote
     const img = Textures[pk.kind];
-    if (pk.kind === 'chest' || pk.kind === 'bolt' || pk.kind === 'ticket') {
-      const glow = (pk.kind === 'chest' ? 30 : 18) + Math.sin(game.time * 5) * 6;
+    if (['chest', 'bolt', 'ticket', 'magnet', 'candy', 'mascotBadge'].includes(pk.kind)) {
+      const glow = (pk.kind === 'chest' || pk.kind === 'magnet' ? 30 : 18) + Math.sin(game.time * 5) * 6;
       const gr = ctx.createRadialGradient(pk.x, pk.y, 0, pk.x, pk.y, glow);
-      const rgb = pk.kind === 'ticket' ? '127,216,255' : '255,220,80';
+      const rgb = { ticket: '127,216,255', magnet: '90,120,255', candy: '255,120,200' }[pk.kind] || '255,220,80';
       gr.addColorStop(0, `rgba(${rgb},0.6)`);
       gr.addColorStop(1, `rgba(${rgb},0)`);
       ctx.fillStyle = gr;
@@ -2358,6 +3008,7 @@ function draw() {
   for (const e of game.enemies) if (inView(e.x, e.y, 80)) list.push({ key: e.prop ? e.prop.y + e.prop.h / 2 : e.y + e.r, e });
   list.push({ key: p.y + p.r, e: p });
   if (game.server) list.push({ key: game.server.y + game.server.h / 2, server: true });
+
   if (game.follower && game.follower.mode !== 'away') list.push({ key: game.follower.y + game.follower.r, e: game.follower });
   const cx0 = Math.floor((camX - 100) / CHUNK), cx1 = Math.floor((camX + W + 100) / CHUNK);
   const cy0 = Math.floor((camY - 100) / CHUNK), cy1 = Math.floor((camY + H + 100) / CHUNK);
@@ -2365,11 +3016,14 @@ function draw() {
     for (let cy = cy0; cy <= cy1; cy++)
       for (const pr of chunkProps(cx, cy))
         if (!pr.broken && !pr.entity) list.push({ key: pr.y + pr.h / 2, prop: pr });
+  for (const ws of game.workspaces || [])
+    if (inView(ws.cx, ws.cy, WS_W)) for (const dk of ws.desks) list.push({ key: dk.y + dk.h / 2, prop: dk });
   list.sort((a, b) => a.key - b.key);
 
   for (const it of list) {
     if (it.prop) { drawProp(it.prop, it.prop.img); continue; }
     if (it.server) { drawServer(game.server); continue; }
+
     const e = it.e;
     if (e === p) { drawPlayer(p); continue; }
     if (e === game.follower) { drawFollower(e); continue; }
@@ -2435,13 +3089,17 @@ function draw() {
     ctx.stroke();
   }
   for (const w of game.weapons) {
-    if (w.id !== 'mouse' || !w.lasso) continue;
-    const ls = w.lasso, img = Textures.mouse;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.quadraticCurveTo((p.x + ls.x) / 2 + 10, (p.y + ls.y) / 2 - 10, ls.x, ls.y);
-    ctx.stroke();
-    ctx.drawImage(img, Math.round(ls.x - img.width / 2), Math.round(ls.y - img.height / 2));
+    if (w.id !== 'mouse') continue;
+    const img = Textures.mouse;
+    for (const ls of [w.lasso, ...(w.orbit || [])]) {
+      if (!ls) continue;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.quadraticCurveTo((p.x + ls.x) / 2 + 10, (p.y + ls.y) / 2 - 10, ls.x, ls.y);
+      ctx.stroke();
+      const sz = ls.size || 1; // la souris grossit avec le niveau de l'arme
+      ctx.drawImage(img, Math.round(ls.x - img.width * sz / 2), Math.round(ls.y - img.height * sz / 2), img.width * sz, img.height * sz);
+    }
   }
 
   // Projectiles des ennemis (qui tournent sur eux-mêmes)
@@ -2543,6 +3201,16 @@ function draw() {
       if (ef.flip) ctx.scale(-1, 1);
       ctx.scale(1 + k * 0.5, 1 - k * 0.8);
       ctx.drawImage(img, -w / 2, -h, w, h);
+    } else if (ef.type === 'rainbowFart') {
+      // Prout magique de la monture : anneaux arc-en-ciel qui s'élargissent autour du joueur
+      ['#ff4060', '#ffa030', '#ffe040', '#40d070', '#40a0ff', '#a060ff'].forEach((c, i) => {
+        ctx.globalAlpha = Math.max(0, 0.8 - k);
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(1, ef.r * Math.min(1, k * 1.4) - i * 7), 0, Math.PI * 2);
+        ctx.stroke();
+      });
     } else if (ef.type === 'aura') {
       ctx.globalAlpha = (1 - k) * 0.7;
       ctx.strokeStyle = ef.color;
@@ -2636,6 +3304,23 @@ function draw() {
 
   drawSpecialWorld();
 
+  // La Delivery Team arrive et danse en cercle autour du joueur
+  if (game.party) {
+    const pt = game.party.t, n = game.party.dancers.length;
+    const k = Math.min(1, pt / 1.5, (PARTY_TIME - pt) / 1.5); // arrivée, puis départ
+    game.party.dancers.forEach((id, i) => {
+      const a = i / n * Math.PI * 2 + pt * 1.2, r = 520 - k * 420;
+      const x = p.x + Math.cos(a) * r, y = p.y + Math.sin(a) * r * 0.75;
+      const set = skinSprites(id), frames = set.walkRight, img = frames[Math.floor(pt * 10 + i) % frames.length];
+      const jump = -Math.abs(Math.sin(pt * 8 + i)) * 10;
+      ctx.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height / 2 + jump));
+      if ((Math.floor(pt * 3) + i) % 6 === 0) {
+        ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd040';
+        ctx.fillText('♪', x + 10, y - img.height / 2 - 6 + jump);
+      }
+    });
+  }
+
   // Particules
   for (const pa of game.particles) {
     ctx.globalAlpha = 1 - pa.t / pa.life;
@@ -2708,6 +3393,13 @@ function drawAmbience(camX, camY) {
 // Meubles : décor vivant (plantes qui ondulent, écrans qui scintillent, LED, imprimante qui crache du papier)
 function drawProp(pr, img, dx = 0) {
   const t = game.time, x = pr.drawX + dx, y = pr.drawY;
+  // Ombre douce au pied de l'élément (plus large pour les grands arbres et meubles)
+  const def = PROPS[pr.type], sw = Math.max(def ? def.w * 0.6 : 12, img.width * 0.38);
+  const footY = def ? y + def.top + def.h * 0.75 : y + img.height - 4;
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(pr.x + dx + sw * 0.15, footY, sw, sw * 0.28, 0, 0, Math.PI * 2);
+  ctx.fill();
   if (pr.type === 'plant') {
     ctx.save();
     ctx.translate(x + img.width / 2, y + img.height);
@@ -2751,6 +3443,21 @@ function drawProp(pr, img, dx = 0) {
       for (let i = 0; i < 3; i++) ctx.fillRect(x - k * 40 - i * 9, y + 20 - k * 22 + i * 7, 2, 2);
       ctx.globalAlpha = 1;
     }
+  } else if (pr.type === 'reception') {
+    const p = game.player;
+    if (game.state === 'play' && Math.hypot(p.x - pr.x, p.y - pr.y) < 190 && (!pr.helloT || t - pr.helloT > 8)) {
+      pr.helloT = t;
+      pr.hello = RECEPTION_LINES[Math.random() * RECEPTION_LINES.length | 0];
+      pr.helloSide = Math.random() < 0.5 ? 46 : 130;
+      // Avec son badge, on peut repartir avec un bonbon (un par accueil, pas trop souvent)
+      if (game.hasBadge && !pr.candyGiven && t - (game.lastCandyT ?? -999) > CANDY_COOLDOWN) {
+        pr.candyGiven = true;
+        game.lastCandyT = t;
+        pr.hello = 'Un bonbon pour vous !';
+        game.pickups.push({ x: pr.x + (Math.random() - 0.5) * 60, y: pr.y + 60, kind: 'candy' });
+      }
+    }
+    if (pr.helloT && t - pr.helloT < 2.5) drawBubble(pr.hello, x + pr.helloSide, y + 22);
   } else if (pr.type === 'printer') {
     const ph = (t * 0.5 + pr.x * 0.01) % 2; // une feuille sort toutes les 2 secondes
     if (ph < 0.6) {
@@ -2777,8 +3484,32 @@ function drawPlayer(p) {
     ctx.fill();
   }
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2) ctx.globalAlpha = 0.4;
+  let ride = 0;
+  if (game.mount) {
+    // Sur sa licorne (qui regarde dans le sens de la marche)
+    const u = PROP_IMAGES.unicorn, gallop = p.moving ? -Math.abs(Math.sin(game.time * 10)) * 4 : 0;
+    ctx.save();
+    ctx.translate(Math.round(p.x), Math.round(p.y + 6 + gallop));
+    if (p.dirX < 0) ctx.scale(-1, 1);
+    ctx.drawImage(u, -u.width / 2, -u.height / 2);
+    ctx.restore();
+    ride = -20 + gallop;
+  }
   const fat = chocoFat(), fw = img.width * fat; // niveau 4 : le chocolat fait grossir
-  ctx.drawImage(img, Math.round(p.x - fw / 2), Math.round(p.y - img.height / 2 + bob), Math.round(fw), img.height);
+  ctx.drawImage(img, Math.round(p.x - fw / 2), Math.round(p.y - img.height / 2 + bob + ride), Math.round(fw), img.height);
+  if (game.badgeMode) {
+    // Le badge pend au cou, au bout d'un collier de la couleur du mode
+    const top = p.y - img.height / 2 + bob + ride, neckY = top + img.height * 0.42, cardY = top + img.height * 0.6;
+    ctx.strokeStyle = BADGE_MODES[game.badgeMode].color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 7, neckY); ctx.lineTo(p.x, cardY); ctx.lineTo(p.x + 7, neckY);
+    ctx.stroke();
+    ctx.fillStyle = '#f4f6fa';
+    ctx.fillRect(Math.round(p.x - 4), Math.round(cardY), 8, 9);
+    ctx.fillStyle = '#1423dc';
+    ctx.fillRect(Math.round(p.x - 3), Math.round(cardY + 1), 3, 3);
+  }
   const costume = costumeOf(p.charId);
   if (costume && costume.fx === 'beacon') {
     const blue = Math.floor(game.time * 4) % 2;
@@ -2904,8 +3635,8 @@ function drawPiRoom(g) {
   ctx.fillStyle = '#6a707c';
   ctx.fillRect(x, y + h, side, 8);
   ctx.fillRect(x + w - side, y + h, side, 8);
-  // Porte : fermée avec un cadenas sans badge, battants ouverts avec
-  if (!game.hasBadge) {
+  // Porte : fermée avec un cadenas sans badge (ou tant que les mascottes furieuses sont là), battants ouverts sinon
+  if (!game.hasBadge || g.ambush === 'closed') {
     ctx.fillStyle = '#5a6a80';
     ctx.fillRect(x + side, y + h - T, PI_DOOR, T);
     ctx.fillStyle = '#44526a';
@@ -2913,7 +3644,7 @@ function drawPiRoom(g) {
     ctx.fillRect(cx - 1, y + h - T, 2, T + 8);
     ctx.font = '16px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('🔒', cx, y + h + 4);
+    ctx.fillText(g.ambush === 'closed' ? '😠' : '🔒', cx, y + h + 4);
   } else {
     ctx.fillStyle = '#5a6a80';
     ctx.fillRect(x + side, y + h - T - 40, 6, 40);
@@ -3038,12 +3769,14 @@ function drawHud() {
   ctx.textAlign = 'center';
   ctx.lineWidth = 4;
   ctx.strokeStyle = '#000';
-  ctx.strokeText(formatTime(game.time), W / 2, 50);
-  ctx.fillText(formatTime(game.time), W / 2, 50);
+  const timer = (game.endless ? '∞ ' : '') + formatTime(game.time);
+  ctx.strokeText(timer, W / 2, 50);
+  ctx.fillText(timer, W / 2, 50);
   ctx.font = "10px 'Press Start 2P', monospace";
   ctx.lineWidth = 3;
-  ctx.strokeText('🕘 ' + officeClock(game.time) + ' / 18h00', W / 2, 70);
-  ctx.fillText('🕘 ' + officeClock(game.time) + ' / 18h00', W / 2, 70);
+  const clockTxt = '🕘 ' + officeClock(game.time) + (game.endless ? ' · mode infini' : ' / 18h00');
+  ctx.strokeText(clockTxt, W / 2, 70);
+  ctx.fillText(clockTxt, W / 2, 70);
 
   // Barre de vie du boss
   const boss = game.enemies.find(e => e.boss);
@@ -3063,16 +3796,15 @@ function drawHud() {
     ctx.fillText('👔 ' + boss.name.toUpperCase(), W / 2, by + 26);
   }
 
-  // Niveau 2 : flèche vers la porte de la salle PI, en haut au milieu
-  if (game.goal && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
-    const g = game.goal;
-    const tx = game.hasBadge ? g.doorX : g.badgeX, ty = game.hasBadge ? g.doorY + 30 : g.badgeY;
-    const dx = tx - p.x, dy = ty - p.y;
+  // Flèche vers l'objectif (badge / salle PI, lettre la plus proche, licorne la plus proche), en haut au milieu
+  const obj = game.state !== 'title' && game.state !== 'start' && game.state !== 'levels' ? objectiveTarget() : null;
+  if (obj) {
+    const dx = obj.x - p.x, dy = obj.y - p.y;
     const ay = boss ? 136 : 104, a = Math.atan2(dy, dx);
     ctx.save();
     ctx.translate(W / 2, ay);
     ctx.rotate(a);
-    ctx.fillStyle = '#96cd32';
+    ctx.fillStyle = obj.color || '#96cd32';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -3087,7 +3819,7 @@ function drawHud() {
     ctx.stroke();
     ctx.fill();
     ctx.restore();
-    const label = `${game.hasBadge ? 'Salle PI' : '🪪 Badge'} · ${Math.round(Math.hypot(dx, dy) / 40)} m`;
+    const label = `${obj.label} · ${Math.round(Math.hypot(dx, dy) / 40)} m`;
     ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3;
@@ -3097,20 +3829,62 @@ function drawHud() {
     ctx.fillText(label, W / 2, ay + 34);
   }
 
+  // Niveau 1 : le mot DELIVERY sous les emplacements d'armes, lettres trouvées en doré
+  if (game.letters && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
+    ctx.font = "11px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    game.letters.forEach((l, i) => {
+      const x = 22 + i * 22, y = 98;
+      ctx.fillStyle = l.got ? '#ffd040' : 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x - 10, y - 10, 20, 20);
+      ctx.strokeStyle = l.got ? '#fff4b0' : 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 9, y - 9, 18, 18);
+      ctx.fillStyle = l.got ? '#5a2a00' : 'rgba(255,255,255,0.35)';
+      ctx.fillText(l.ch, x + 1, y + 1);
+    });
+    ctx.textBaseline = 'alphabetic';
+    if (game.letters.every(l => l.got)) {
+      ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#7fe07f';
+      ctx.fillText(`+${PARTY_DMG * 100} % de dégâts`, 12, 124);
+    }
+  }
+
+  // Niveau 2 : encart du mode choisi avec le badge (Prestataire / Interne) et ses bonus
+  if (game.badgeMode && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
+    const m = BADGE_MODES[game.badgeMode], bw = 200, bx = W - bw - 12, by = 84;
+    ctx.fillStyle = 'rgba(10,16,24,0.8)';
+    ctx.fillRect(bx, by, bw, 92);
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx + 1, by + 1, bw - 2, 90);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = m.color === '#d03030' ? '#ff8a8a' : '#8ab8ff';
+    ctx.fillText('🪪 ' + m.name, bx + 10, by + 20);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#7fe07f';
+    ctx.fillText(`⚔️ +${Math.round(m.dmg * 100)} % de dégâts`, bx + 10, by + 40);
+    ctx.fillText(`👟 +${Math.round(m.speed * 100)} % de vitesse`, bx + 10, by + 58);
+    ctx.fillText(`⭐ +${fmtPct(m.xp)} % d'XP`, bx + 10, by + 76);
+  }
+
   // Niveau 4 : encart à droite (chocolats mangés, bonus de dégâts, malus de vitesse)
   if (LEVELS[game.level].chocolate && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
     const ch = game.choco, bw = 196, bx = W - bw - 12, by = 84;
     ctx.fillStyle = 'rgba(40,20,10,0.75)';
-    ctx.fillRect(bx, by, bw, 74);
+    ctx.fillRect(bx, by, bw, 94);
     ctx.strokeStyle = '#e8b830';
     ctx.lineWidth = 2;
-    ctx.strokeRect(bx + 1, by + 1, bw - 2, 72);
+    ctx.strokeRect(bx + 1, by + 1, bw - 2, 92);
     ctx.textAlign = 'left';
     ctx.font = 'bold 13px sans-serif';
     const lines = [
       ['🍫 Chocolats', String(ch.eaten), '#fff'],
       ['⚔️ Dégâts', '+' + (ch.dmg * 100).toFixed(1).replace('.', ',') + ' %', '#7fe07f'],
       ['🐢 Vitesse', '−' + (ch.slow * 100).toFixed(1).replace('.', ',') + ' %', ch.slow > 0 ? '#ff8a6a' : '#fff'],
+      ['🦄 Licornes', game.mount ? 'en selle !' : `${(game.pens || []).filter(pn => pn.found).length}/4`, game.mount ? '#ff9ad0' : '#fff'],
     ];
     lines.forEach(([label, val, col], i) => {
       ctx.fillStyle = '#f0e0c0';
@@ -3120,6 +3894,21 @@ function drawHud() {
       ctx.fillText(val, bx + bw - 10, by + 22 + i * 20);
       ctx.textAlign = 'left';
     });
+    if (game.mount) {
+      // Bonus de la monture, juste en dessous
+      const my = by + 102, mh = 64;
+      ctx.fillStyle = 'rgba(90,30,80,0.8)';
+      ctx.fillRect(bx, my, bw, mh);
+      ctx.strokeStyle = '#ff9ad0';
+      ctx.strokeRect(bx + 1, my + 1, bw - 2, mh - 2);
+      ctx.fillStyle = '#ffd0ee';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('🦄 En selle !', bx + 10, my + 19);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`👟 +${Math.round((MOUNT_SPEED - 1) * 100)} % de vitesse`, bx + 10, my + 37);
+      ctx.fillText(`🌈 Prout magique toutes les ${MOUNT_FART_EVERY[0]}-${MOUNT_FART_EVERY[1]} s`, bx + 10, my + 54);
+    }
   }
 
   // Événement en cours (en bas au milieu) et son coupé (en haut à droite)
@@ -3264,7 +4053,7 @@ document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
 buildLevelSelect();
 buildDifficultySelect();
-Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id), ...Object.keys(BOSS_LINES).map(k => 'boss_' + k), ...Object.keys(FAIRY_BOSSES).map(k => 'fboss_' + k)]);
+Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id), ...Object.keys(BOSS_LINES).map(k => 'boss_' + k), ...Object.keys(FAIRY_BOSSES).map(k => 'fboss_' + k), ...Object.keys(MASCOT_BOSSES).map(k => 'mascot_' + k), ...Object.keys(MASCOT_BOSSES).map(k => 'mascot_' + k + '_angry')]);
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);

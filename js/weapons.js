@@ -454,10 +454,11 @@ const WEAPONS = {
   mouse: {
     name: 'Souris filaire', icon: '🖱️', maxLevel: 6,
     desc: 'Au hasard : lance sa souris sur un ennemi, ou la fait tournoyer autour de lui comme un lasso.',
-    legend: 'Lance la souris ET fait tournoyer un lasso géant à chaque attaque.',
+    legend: 'Deux souris tournoient en permanence autour de toi, et une troisième est lancée sur les ennemis.',
     stats: l => ({
-      dmg: 12 + l * 5,
+      dmg: 14 + l * 6,
       cd: +Math.max(0.8, 1.6 - l * 0.12).toFixed(2),
+      size: +(1 + l * 0.25).toFixed(2), // la souris grossit à chaque niveau (×1,25 → ×2,5)
       area: 95 + l * 12,
       pierce: 2 + Math.floor(l / 2),
       speed: 480,
@@ -472,23 +473,37 @@ const WEAPONS = {
         ls.x = p.x + Math.cos(a) * ls.r;
         ls.y = p.y + Math.sin(a) * ls.r * 0.8;
         queryEnemies(ls.x, ls.y, 60, e => {
-          if (e.dead || ls.hit.has(e) || (e.x - ls.x) ** 2 + (e.y - ls.y) ** 2 > (16 + e.r) ** 2) return;
+          if (e.dead || ls.hit.has(e) || (e.x - ls.x) ** 2 + (e.y - ls.y) ** 2 > (16 * ls.size + e.r) ** 2) return;
           ls.hit.add(e);
           hitEnemy(e, ls.dmg, Math.cos(a) * 160, Math.sin(a) * 160);
         });
         if (ls.t >= ls.dur) w.lasso = null;
       }
+      // Légendaire : 2 souris tournent en permanence au bout de leur fil (chaque ennemi touché au plus 2 fois par seconde)
+      if (w.legendary) {
+        w.orbitA = (w.orbitA || 0) + 5 * dt;
+        const R = st.area * p.area * 1.3;
+        w.orbit = [0, Math.PI].map(off => {
+          const a = w.orbitA + off, x = p.x + Math.cos(a) * R, y = p.y + Math.sin(a) * R * 0.8;
+          queryEnemies(x, y, 60, e => {
+            if (e.dead || game.time - (e.hitT.mouseOrbit || -9) < 0.5 || (e.x - x) ** 2 + (e.y - y) ** 2 > (16 * st.size + e.r) ** 2) return;
+            e.hitT.mouseOrbit = game.time;
+            hitEnemy(e, st.dmg, Math.cos(a) * 160, Math.sin(a) * 160);
+          });
+          return { x, y, size: st.size };
+        });
+      } else w.orbit = null;
       w.timer -= dt;
       if (w.timer > 0) return;
       const target = nearestEnemy(p.x, p.y, 500);
       if (!target) return;
       w.timer = st.cd * p.cdMult;
-      const lasso = w.legendary || Math.random() < 0.5, toss = w.legendary || !lasso;
+      const lasso = !w.legendary && Math.random() < 0.5, toss = w.legendary || !lasso;
       if (toss)
-        spawnProjectile({ x: p.x, y: p.y, angle: Math.atan2(target.y - p.y, target.x - p.x), speed: st.speed, dmg: st.dmg, pierce: st.pierce, r: 10, life: 1.1, sprite: 'mouse', noRotate: true, cable: true });
+        spawnProjectile({ x: p.x, y: p.y, angle: Math.atan2(target.y - p.y, target.x - p.x), speed: st.speed, dmg: st.dmg, pierce: st.pierce, r: 10 * st.size, size: st.size, life: 1.1, sprite: 'mouse', noRotate: true, cable: true });
       if (lasso && !w.lasso) {
         const big = w.legendary ? 1.5 : 1;
-        w.lasso = { t: 0, dur: 0.8, a0: Math.random() * Math.PI * 2, r: st.area * p.area * big, dmg: st.dmg * 1.2, hit: new Set(), x: p.x, y: p.y };
+        w.lasso = { t: 0, dur: 0.8, a0: Math.random() * Math.PI * 2, r: st.area * p.area * big, dmg: st.dmg * 1.2, hit: new Set(), x: p.x, y: p.y, size: st.size };
         if (Math.random() < 0.06) game.playerBubble = { text: 'Yihaaaa !', t: 1.5 }; // de temps en temps, vraiment pas souvent
       }
     },
@@ -548,7 +563,7 @@ const PASSIVES = {
   regen:  { name: 'Continuité de service',          icon: '🛟', maxLevel: 5, desc: 'PCA en place : +0.5 PV / seconde',                   apply: p => p.regen += 0.5 },
 };
 
-const STAT_LABELS = { dmg: 'Dégâts', cd: 'Recharge', count: 'Quantité', pierce: 'Perforation', area: 'Zone', speed: 'Vitesse', tick: 'Intervalle', sides: 'Directions', arc: 'Angle', stun: 'Immobilisation (s)', puddle: 'Dégâts flaque', duration: 'Durée flaque (s)', shards: 'Éclats', slow: 'Ralentissement (s)' };
+const STAT_LABELS = { dmg: 'Dégâts', cd: 'Recharge', count: 'Quantité', pierce: 'Perforation', area: 'Zone', speed: 'Vitesse', tick: 'Intervalle', sides: 'Directions', arc: 'Angle', stun: 'Immobilisation (s)', puddle: 'Dégâts flaque', duration: 'Durée flaque (s)', shards: 'Éclats', slow: 'Ralentissement (s)', size: 'Taille' };
 
 function describeUpgrade(def, lvl) {
   const a = def.stats(lvl - 1), b = def.stats(lvl);
