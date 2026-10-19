@@ -14,6 +14,15 @@ const ANNOUNCES = [
   { key: 'legendary', label: 'Arme légendaire',        text: 'Arme légendaire !' },
 ];
 
+// Répliques des directeurs : arrival = réplique d'arrivée (lue à voix haute, enregistrable : voices/boss_<id>.webm),
+// taunts = petites piques en bulle pendant le combat
+const BOSS_LINES = {
+  dsi: { name: 'DSI', arrival: 'Qui a redémarré le serveur de prod ?!', taunts: ['Ton ticket est en attente.', 'Tu as essayé de redémarrer ?', "Ce n'est pas dans le périmètre.", 'On verra ça au prochain COPIL.'] },
+  drh: { name: 'DRH', arrival: "Il faut qu'on parle de ton entretien annuel…", taunts: ['Tu as bien posé tes congés ?', 'Ça restera entre nous.', "J'ai recruté des stagiaires !", 'Ta mutuelle couvre ça ?'] },
+  daf: { name: 'DAF', arrival: 'On va devoir parler de ton budget…', taunts: ["Cette dépense n'était pas prévue.", 'Il faut faire des économies !', "C'est hors budget.", 'Tu as une note de frais ?'] },
+  pdg: { name: 'PDG', arrival: 'Bonjour à tous : petite réorganisation !', taunts: ['On est une grande famille.', 'Il faut être agile !', "La vision, c'est moi.", 'Les résultats sont excellents… pour moi.'] },
+};
+
 // Super pouvoir partagé par les deux Delivery Managers
 const SPECIAL_MEP = { name: 'Pluie de MEP', icon: '📋', desc: 'Une pluie de demandes de mise en production tombe du ciel sur les ennemis.', type: 'rain', sprite: 'request' };
 

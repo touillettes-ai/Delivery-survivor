@@ -973,10 +973,27 @@ function spawnBoss(text) {
   Sfx.boss();
   Sfx.sayName('boss', 'Un directeur arrive !');
   game.banner = { text: text.replace('{name}', bt.name), t: 3 };
+  e.introDone = false; // sa réplique d'arrivée attend qu'il soit visible à l'écran (voir enemyBehavior)
 }
 
 // Comportements particuliers ; renvoie la vitesse à appliquer, ou null pour la poursuite normale
 function enemyBehavior(e, dt, dx, dy, dist, spd) {
+  if (e.boss && !e.introDone) {
+    // Réplique d'arrivée (bulle + voix) dès qu'il entre vraiment dans l'écran
+    const p = game.player, h = Sprites[e.sprite || e.type].frames[0].height * e.scale;
+    if (Math.abs(e.x - p.x) < W / 2 - 40 && Math.abs(e.y - p.y) < H / 2 - h / 2 - 20) {
+      const line = BOSS_LINES[e.kind].arrival;
+      Object.assign(e, { introDone: true, bubble: { text: line, t: 4 }, tauntT: 9 + Math.random() * 4 });
+      Sfx.sayName('boss_' + e.kind, line);
+    }
+  } else if (e.boss) {
+    if (e.bubble && (e.bubble.t -= dt) <= 0) e.bubble = null;
+    if ((e.tauntT -= dt) <= 0) {
+      const taunts = BOSS_LINES[e.kind].taunts;
+      e.tauntT = 8 + Math.random() * 4;
+      e.bubble = { text: taunts[Math.random() * taunts.length | 0], t: 3 };
+    }
+  }
   if (e.stun > 0) return null;
   const abilities = e.boss ? BOSS_TYPES[e.kind].ai : ENEMIES[e.type].ai ? [ENEMIES[e.type].ai] : [];
   let move = null;
@@ -2181,6 +2198,12 @@ function draw() {
   // Bulle du suiveur, au-dessus de tout le reste
   const f = game.follower;
   if (f && f.mode !== 'away' && f.bubble > 0) drawBubble(f.text, f.x, f.y - Sprites.follower.right.height * followerScale(f) / 2 - 4);
+  // Bulles des directeurs
+  for (const e of game.enemies) {
+    if (!e.boss || !e.bubble || !inView(e.x, e.y, 120)) continue;
+    const h = Sprites[e.sprite || e.type].frames[0].height * e.scale;
+    drawBubble(e.bubble.text, e.x, e.y - h / 2 - 2);
+  }
   // Bulle de Sheryna
   if (game.playerBubble) drawBubble(game.playerBubble.text, p.x, p.y - Sprites[p.charId].right.height / 2 - 4);
   // Bulle de l'orateur qui parle sur la scène de la PI
@@ -2646,7 +2669,7 @@ document.getElementById('chestBtn').onclick = closeChest;
 document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
 buildLevelSelect();
-Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id)]);
+Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id), ...Object.keys(BOSS_LINES).map(k => 'boss_' + k)]);
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);
