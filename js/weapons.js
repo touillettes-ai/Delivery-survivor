@@ -67,7 +67,7 @@ const WEAPONS = {
     legend: 'Envoie des trains dans toutes les directions.',
     stats: l => ({
       dmg: 12 + l * 5,
-      cd: +Math.max(0.5, 1.5 - l * 0.1).toFixed(2),
+      cd: +Math.max(1.2, 2.6 - l * 0.12).toFixed(2),
       count: 1 + Math.floor(l / 3),
       pierce: 3 + Math.floor(l / 2),
       speed: 320,
@@ -87,7 +87,7 @@ const WEAPONS = {
     legend: 'Envoie des GO et des NO GO dans toutes les directions.',
     stats: l => ({
       dmg: 9 + l * 3,
-      cd: +Math.max(0.35, 1.0 - l * 0.07).toFixed(2),
+      cd: +Math.max(0.5, 1.2 - l * 0.07).toFixed(2),
       count: 1 + Math.floor(l / 2),
       stun: +(0.8 + l * 0.1).toFixed(1),
       speed: 380,
@@ -123,7 +123,7 @@ const WEAPONS = {
     legend: 'Envoie 2 avions géants qui traversent tous les ennemis.',
     stats: l => ({
       dmg: 8 + l * 4,
-      cd: Math.max(0.3, 1.1 - l * 0.09),
+      cd: +Math.max(0.45, 1.3 - l * 0.09).toFixed(2),
       count: 1 + Math.floor((l - 1) / 2),
       pierce: 1 + Math.floor(l / 4),
       speed: 450,
@@ -152,7 +152,7 @@ const WEAPONS = {
     legend: "Mitraille des rafales d'agrafes dans 8 directions.",
     stats: l => ({
       dmg: 6 + l * 3,
-      cd: Math.max(0.2, 0.7 - l * 0.05),
+      cd: +Math.max(0.6, 1.4 - l * 0.08).toFixed(2),
       count: 1 + Math.floor(l / 2),
       pierce: 1 + Math.floor(l / 3),
       speed: 650,
@@ -287,7 +287,7 @@ const WEAPONS = {
     stats: l => ({
       dmg: 3 + l * 2,
       area: 55 + l * 10,
-      tick: +Math.max(0.3, 0.6 - l * 0.03).toFixed(2),
+      tick: +Math.max(0.4, 0.75 - l * 0.03).toFixed(2),
     }),
     update(w, dt, st) {
       const p = game.player;
@@ -385,7 +385,7 @@ const WEAPONS = {
     legend: "Chaque tir envoie toutes les IA, dans toutes les directions.",
     stats: l => ({
       dmg: 9 + l * 4,
-      cd: +Math.max(0.4, 1.3 - l * 0.1).toFixed(2),
+      cd: +Math.max(1.1, 2.4 - l * 0.14).toFixed(2),
       count: 1 + Math.floor(l / 2),
       pierce: 1 + Math.floor(l / 4),
       speed: 300,
