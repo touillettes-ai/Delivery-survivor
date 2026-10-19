@@ -128,10 +128,41 @@ const LEVELS = {
     xpMult: 2.5, // niveau 2 fois plus court : on gagne bien plus d'XP pour monter aussi haut
   },
 };
+// Niveau 4 : pluies de chocolat
+const CHOCO_FIRST = 30;            // première pluie à 30 s
+const CHOCO_EVERY = [40, 60];      // puis toutes les 40 à 60 s
+const CHOCO_PER_RAIN = 24;         // chocolats par pluie
+const CHOCO_RAIN_TIME = 5;         // durée d'une pluie (s)
+const CHOCO_LIFE = 12;             // un chocolat reste 12 s au sol
+const CHOCO_DMG = 0.003;           // +0,3 % de dégâts par chocolat (gardé toute la partie)
+const CHOCO_SLOW = 0.003;          // -0,3 % de vitesse par chocolat…
+const CHOCO_SLOW_MAX = 0.5;        // (au plus -50 %)
+const CHOCO_BURN = 0.0004;         // …qu'on perd en se déplaçant (par seconde de course)
+const CHOCO_FAT = 17;              // largeur en plus du personnage par point de malus (1 chocolat ≈ +5 %)
+
 // Niveau 3 : le serveur de prod à défendre
 const SERVER_HP = 900;
 const SERVER_TARGET_CHANCE = 0.5; // part des ennemis qui foncent sur le serveur plutôt que sur toi
 const SERVER_REPAIR = 0.1;        // un ticket ramassé répare 10% du serveur
+LEVELS.gourmand = {
+  icon: '🍫', name: 'Les gourmands du Delivery',
+  desc: "Survis 10 minutes dans un monde féerique. Gare aux pluies de chocolat : chaque chocolat donne +0,3 % de dégâts… mais tu grossis et tu ralentis. Cours pour mincir !",
+  floor: 'fairy',
+  props: [['candytree', 0.3], ['canbush', 0.18], ['funflower', 0.2], ['unicorn', 0.1]],
+  decals: [['sparkles', 0.35], ['wrappers', 0.2], ['rainbow', 0.1]],
+  chocolate: true,
+  // Même comportement, apparence féerique : sprite de remplacement par type d'ennemi (flying : vole par-dessus le décor)
+  skins: {
+    intern: { sprite: 'fairy', color: '#5a9aff', flying: true },
+    coworker: { sprite: 'slime', color: '#ff8ad0' },
+    commercial: { sprite: 'goblin', color: '#7ac850' },
+    consultant: { sprite: 'wizard', color: '#5a3a9a' },
+    manager: { sprite: 'mushroom', color: '#e03040' },
+    rh: { sprite: 'pixie', color: '#ff7ac0', flying: true },
+  },
+  shots: { ppt: 'orb', ticket: 'fireball' }, // projectiles ennemis remplacés
+  monsters: true,                            // les directeurs deviennent des monstres (FAIRY_BOSSES)
+};
 const levelDuration = () => LEVELS[game.level].duration || GAME_DURATION;
 const PI_DISTANCE = 8000;    // distance entre le départ et la porte de la salle PI
 const BADGE_DISTANCE = 4000; // distance entre le départ et le badge (sur le côté)
@@ -165,6 +196,10 @@ const PRINTER_HP = 25;
 const PRINTER_BLAST_R = 110;     // rayon de l'explosion d'une imprimante
 const PRINTER_BLAST_DMG = 40;    // + 15 par palier de difficulté
 const PRINTER_TICKET_CHANCE = 0.5;
+
+// Soins lâchés par les ennemis (trousse de soin : +30 PV)
+const HEAL_DROP_CHANCE = 0.05;  // 5 % des ennemis vaincus (les élites en lâchent toujours un)
+const HEAL_DROP_LIFE = 20;      // la trousse reste 20 s au sol, puis clignote et disparaît
 
 // Plantes cassables
 const PLANT_HP = 12;
@@ -228,6 +263,7 @@ const floorPatterns = {
   floor: ctx.createPattern(Textures.floor, 'repeat'),
   parquet: ctx.createPattern(Textures.parquet, 'repeat'),
   datacenter: ctx.createPattern(Textures.datacenter, 'repeat'),
+  fairy: ctx.createPattern(Textures.fairy, 'repeat'),
 };
 
 let game;
@@ -254,8 +290,10 @@ addEventListener('keydown', e => {
     return;
   }
   if (game.state === 'start') {
-    const mv = { ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0], ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1] }[e.code];
-    if (mv) { e.preventDefault(); moveCharCursor(...mv); }
+    const skin = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[e.code];
+    if (skin) { e.preventDefault(); changeSkin(cursorChar, skin); }
+    const mv = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 }[e.code];
+    if (mv) { e.preventDefault(); moveCharCursor(mv); }
     if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) { e.preventDefault(); openLevelSelect(cursorChar); }
     return;
   }
@@ -288,6 +326,62 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 // Joystick tactile / souris : on glisse depuis le point de départ
 const touch = { active: false, sx: 0, sy: 0, x: 0, y: 0 };
 const lastTap = { t: 0, x: 0, y: 0 };
+// Skins (costumes) : choisis à la sélection du personnage avec ←/→ (ou Q/D), mémorisés
+// Dans le même ordre que COSTUME_LIST (textures.js) : name, lines (réplique au départ),
+// talk (répliques de temps en temps pendant la partie), fx (effet spécial)
+const COSTUME_SETS = {
+  sheryna: [{ name: 'Tenue de running', lines: ['Je cours un semi demain !', 'Encore 10 km et je rentre !'] }],
+  bastien: [
+    { name: 'Maillot du PSG', lines: ["Ici c'est Paris !", 'Allez Paris !'] },
+    { name: "Oups, j'ai oublié mon costume", lines: ["Oups… j'ai oublié mon costume !", 'Personne ne regarde ?'] },
+  ],
+  matthieu: [{ name: 'Lapin mascotte', lines: ['Joyeuses Pâques !', "Le lapin arrive à l'heure, lui !"] }],
+  franck: [
+    { name: 'Père Noël', lines: ['Ho ho ho !', 'Tu as été sage cette année ?', 'GO pour la tournée de cadeaux !'] },
+    { name: "Traqueur d'ours", lines: ['Chut… un ours !', 'Clic-clac, photo !'] },
+  ],
+  coline: [
+    { name: 'La Cheffe', lines: ["C'est moi la cheffe !", 'Réunion dans 5 minutes !', 'Tout le monde à son poste !'] },
+    { name: 'Cheffe de cuisine', lines: ['Service !', "Ce soir, c'est moi qui cuisine !"] },
+  ],
+  amelie: [{ name: 'Future maman', lines: ['Le bébé donne des coups de pied !', 'Je lui chante du Céline Dion !'] }],
+  imen: [{ name: 'Future maman', lines: ["Le congé mat', c'est bientôt !", "Ce budget, c'est pour la layette."] }],
+  stephan: [
+    { name: 'Stéphane à la retraite', lines: ['Enfin la retraite !', 'De mon temps, les incidents…'] },
+    { name: 'Disco boy', lines: ['Mamma Mia !'], talk: ['I am the dancing king !', 'Gimme Gimme Gimme !', 'Mamma Mia !'] },
+  ],
+  danila: [{ name: 'Agent secret', lines: ['Agent Danila, en mission.', 'Regardez ici… *flash*'] }],
+  sandie: [{ name: 'Bain de soleil', lines: ['Je suis en congés !', "Pas de CAB aujourd'hui…"] }],
+  hakim: [{ name: 'IA', lines: ['Bonjour, je suis HAK-IM 3000.', 'Prompt reçu. Exécution.'] }],
+  cecile: [
+    { name: 'La classe à Dallas', lines: ['La classe à Dallas !'] },
+    { name: 'Tempête Cécile', lines: ['Tempête Cécile en approche !'], fx: 'storm' },
+  ],
+  youssef: [{ name: 'BG', lines: ['Salut… ça va ?', 'Toujours stylé.'] }],
+  arno: [
+    { name: 'Shaolin', lines: ['Om…', 'La paix intérieure.'] },
+    { name: 'Alpiniste chevronné', lines: ['Direction le sommet !', 'Encore 2000 mètres !'] },
+  ],
+  olivier: [
+    { name: 'Gremlins', lines: ['Gizmo caca !', "Pas d'eau, pas après minuit !"] },
+    { name: 'Ghostbuster', lines: ['Who you gonna call ?', 'Il y a un fantôme dans le serveur !'] },
+  ],
+};
+let chosenSkins = (() => { try { return JSON.parse(localStorage.getItem('ds-skins')) || {}; } catch (e) { return {}; } })();
+const skinCount = id => 1 + (COSTUME_LIST[id] || []).length;          // 0 = tenue normale, 1, 2… = costumes
+const skinSprites = id => (chosenSkins[id] && Sprites[`costume_${id}_${chosenSkins[id]}`]) || Sprites[id];
+const costumeOf = id => chosenSkins[id] ? (COSTUME_SETS[id] || [])[chosenSkins[id] - 1] : null;
+function changeSkin(id, dir) {
+  const n = skinCount(id);
+  if (n < 2) return;
+  chosenSkins[id] = ((chosenSkins[id] || 0) + dir + n) % n;
+  try { localStorage.setItem('ds-skins', JSON.stringify(chosenSkins)); } catch (e) { /* stockage indisponible */ }
+  const b = document.querySelector(`.char[data-id="${id}"]`);
+  if (b) b.querySelector('.portrait img').src = skinSprites(id).right.toDataURL();
+  renderCharInfo(id);
+  Sfx.ticket();
+}
+
 canvas.addEventListener('pointerdown', e => {
   // Clic / tap sur le bouton du super pouvoir
   if (game.state === 'play') {
@@ -349,6 +443,7 @@ function newGame(charId, levelId = selectedLevel) {
     eventT: FIRST_EVENT, event: null, ticketT: TICKET_EVERY[0], stats: {},
     specialCd: 0, special: null, // super pouvoir prêt dès le début
     enemyShots: [], bossCount: 0, bossOrder: newBossOrder(), fatality: 0,
+    choco: { eaten: 0, dmg: 0, slow: 0 }, chocoT: CHOCO_FIRST, chocoRain: null, chocoFalling: [], // niveau 4
     cam: { x: 0, y: 0 }, flash: 0, hurtFlash: 0, hitStop: 0, dustT: 0, // effets visuels
   };
   chunkCache.clear(); // les plantes cassées repoussent à chaque partie
@@ -374,6 +469,11 @@ function startGame(charId, levelId = selectedLevel) {
   newGame(charId, levelId);
   game.state = 'play';
   if (game.goal) game.banner = { text: '🎯 Récupère ton badge, puis rejoins la salle PI !', t: 4 };
+  const costume = costumeOf(charId);
+  if (costume) {
+    game.playerBubble = { text: costume.lines[Math.random() * costume.lines.length | 0], t: 3 };
+    game.costumeTalkT = 12 + Math.random() * 8;
+  }
   for (const id of ['start', 'levels', 'gameover', 'levelup', 'pause', 'chest']) hide(id);
 }
 
@@ -499,12 +599,15 @@ function buildCharSelect() {
     row.className = 'team';
     row.innerHTML = `<span class="team-label">${team}</span><div class="members"></div>`;
     for (const id of charRows[r]) {
-      const c = CHARACTERS[id], img = Sprites[id].right;
+      const c = CHARACTERS[id], img = skinSprites(id).right;
       const b = document.createElement('button');
       b.className = 'char';
       b.dataset.id = id;
-      b.innerHTML = `<span class="portrait"><img src="${img.toDataURL()}" style="width:${img.width * 1.25}px" alt=""></span>
+      const nav = skinCount(id) > 1 ? '<span class="skin-nav"><i data-dir="-1">◀</i><small>skin</small><i data-dir="1">▶</i></span>' : '';
+      b.innerHTML = `<span class="portrait"><img src="${img.toDataURL()}" style="height:${Sprites[id].right.height * 1.25}px" alt="">${nav}</span>
         <span class="name">${c.name}</span><span class="role">${c.role}</span>`;
+      for (const arrow of b.querySelectorAll('.skin-nav i'))
+        arrow.onclick = ev => { ev.stopPropagation(); selectChar(id); changeSkin(id, +arrow.dataset.dir); };
       b.onclick = () => openLevelSelect(id);
       b.onmouseenter = () => selectChar(id);
       row.lastElementChild.appendChild(b);
@@ -525,14 +628,14 @@ function renderCharInfo(id) {
   const c = CHARACTERS[id], w = WEAPONS[c.weapon], b = charBonus(c);
   document.getElementById('charInfo').innerHTML =
     `<b>${c.name}</b> · ${c.role}<p>${c.desc}</p><small>Arme : ${w.icon} <b>${w.name}</b> — ${w.desc}<br>Bonus : ${b.icon} <b>${b.name}</b> — ${b.desc}` +
-    (c.special ? `<br>Super pouvoir (Espace, toutes les 1 min 30) : ${c.special.icon} <b>${c.special.name}</b> — ${c.special.desc}` : '') + `</small>`;
+    (c.special ? `<br>Super pouvoir (Espace, toutes les 1 min 30) : ${c.special.icon} <b>${c.special.name}</b> — ${c.special.desc}` : '') +
+    (skinCount(id) > 1 ? `<br>👕 Tenue : <b>${(costumeOf(id) || { name: 'Normale' }).name}</b> (${(chosenSkins[id] || 0) + 1}/${skinCount(id)} · ← / → pour changer)` : '') + `</small>`;
 }
 
-function moveCharCursor(dx, dy) {
-  let r = charRows.findIndex(row => row.includes(cursorChar)), i = charRows[r].indexOf(cursorChar);
-  if (dy) { r = (r + dy + charRows.length) % charRows.length; i = Math.min(i, charRows[r].length - 1); }
-  else i = (i + dx + charRows[r].length) % charRows[r].length;
-  selectChar(charRows[r][i]);
+// ↑/↓ : personnage précédent / suivant (dans l'ordre de l'organigramme)
+function moveCharCursor(dir) {
+  const all = charRows.flat(), i = all.indexOf(cursorChar);
+  selectChar(all[(i + dir + all.length) % all.length]);
 }
 
 // Réduit le panneau de sélection pour qu'il tienne toujours entièrement à l'écran
@@ -1056,6 +1159,82 @@ function pushOutOfRect(o, left, top, right, bottom) {
   }
 }
 
+// ---- Niveau 4 : pluies de chocolat ----
+function updateChocolate(dt) {
+  const p = game.player;
+  if (!game.chocoRain && (game.chocoT -= dt) <= 0) {
+    game.chocoT = CHOCO_EVERY[0] + Math.random() * (CHOCO_EVERY[1] - CHOCO_EVERY[0]);
+    game.chocoRain = { t: CHOCO_RAIN_TIME, next: 0 };
+    game.banner = { text: '🍫 Pluie de chocolat !', t: 3 };
+    Sfx.event();
+    Sfx.sayName('chocolate', 'Pluie de chocolat !');
+  }
+  const rain = game.chocoRain;
+  if (rain) {
+    rain.t -= dt;
+    // Les chocolats tombent régulièrement un peu partout autour du joueur
+    while ((rain.next -= dt) <= 0 && rain.t > 0) {
+      rain.next += CHOCO_RAIN_TIME / CHOCO_PER_RAIN;
+      game.chocoFalling.push({ x: p.x + (Math.random() - 0.5) * W * 0.9, y: p.y + (Math.random() - 0.5) * H * 0.8, t: 0, dur: 0.7 });
+    }
+    if (rain.t <= 0) game.chocoRain = null;
+  }
+  for (const c of game.chocoFalling)
+    if ((c.t += dt) >= c.dur) { c.dead = true; game.pickups.push({ x: c.x, y: c.y, kind: 'chocolate', life: CHOCO_LIFE }); }
+  game.chocoFalling = game.chocoFalling.filter(c => !c.dead);
+}
+
+function eatChocolate() {
+  const p = game.player, ch = game.choco;
+  ch.eaten++;
+  ch.dmg += CHOCO_DMG;
+  ch.slow = Math.min(CHOCO_SLOW_MAX, ch.slow + CHOCO_SLOW);
+  Sfx.eat();
+  game.texts.push({ x: p.x, y: p.y - 34, text: `🍫 +${(CHOCO_DMG * 100).toFixed(1).replace('.', ',')} % dégâts`, t: 0, life: 1, color: '#e8b830' });
+}
+
+// Largeur du personnage : il grossit avec le malus chocolat (et retrouve sa taille en courant)
+const chocoFat = () => 1 + Math.min(0.8, game.choco.slow * CHOCO_FAT);
+
+// ---- Menu pause : résumé de ce qu'on a acquis et de ce que ça donne ----
+function renderPauseSummary() {
+  const p = game.player, c = CHARACTERS[p.charId], b = charBonus(c), ch = game.choco;
+  const pct = v => `${v >= 0 ? '+' : '−'}${(Math.abs(v) * 100).toFixed(Math.abs(v) < 0.1 ? 1 : 0).replace('.', ',')} %`;
+  const weapons = game.weapons.map(w => {
+    const d = WEAPONS[w.id];
+    return `<li>${d.icon} <b>${d.name}</b> <em>${w.legendary ? '★ Légendaire' : 'Niv. ' + w.level + (w.level >= d.maxLevel ? ' (max)' : '')}</em><small>${w.legendary ? d.legend : d.desc}</small></li>`;
+  }).join('');
+  const passives = Object.entries(game.passives).map(([id, lvl]) => {
+    const d = PASSIVES[id];
+    return `<li>${d.icon} <b>${d.name}</b> <em>Niv. ${lvl}</em><small>${d.desc}${lvl > 1 ? ` (×${lvl})` : ''}</small></li>`;
+  }).join('') || '<li><small>Aucun pour l\'instant</small></li>';
+  // Statistiques actuelles comparées au personnage de base
+  const stats = [
+    ['⚔️ Dégâts', p.might * (1 + ch.dmg) - 1, pct],
+    ['⏱️ Recharge des armes', p.cdMult - 1, pct],
+    ['👟 Vitesse', p.speed / 150 * (1 - ch.slow) - 1, pct],
+    ['❤️ PV max', p.maxHp - 100, v => `${Math.round(p.maxHp)} (${v >= 0 ? '+' : ''}${Math.round(v)})`],
+    ['🩹 Régénération', p.regen, v => `+${String(v).replace('.', ',')} PV/s`],
+    ['🛡️ Armure', p.armor, v => `−${v} dégât(s) par coup`],
+    ['🔍 Zone d\'effet', p.area - 1, pct],
+    ['🧲 Rayon de ramassage', p.magnet / 70 - 1, pct],
+    ['⭐ XP gagnée', p.xpMult - 1, pct],
+    ['🚀 Vitesse des projectiles', p.projSpeed - 1, pct],
+  ].filter(([, v]) => Math.abs(v) > 1e-6).map(([label, v, f]) => `<tr><td>${label}</td><td class="num">${f(v)}</td></tr>`).join('');
+  document.getElementById('pauseSummary').innerHTML = `
+    <div class="sum-col">
+      <h3>${c.name} · ${c.role}</h3>
+      <p class="sum-bonus">${b.icon} <b>${b.name}</b> — ${b.desc}</p>
+      <h3>Armes</h3><ul>${weapons}</ul>
+      <h3>Bonus (processus ITIL)</h3><ul>${passives}</ul>
+    </div>
+    <div class="sum-col">
+      <h3>Ce que ça te donne</h3>
+      <table class="sum-stats">${stats || '<tr><td>Rien de plus que le personnage de base</td></tr>'}</table>
+      ${LEVELS[game.level].chocolate ? `<p class="sum-bonus">🍫 ${ch.eaten} chocolat(s) mangé(s) : ${pct(ch.dmg)} de dégâts, ${pct(-ch.slow)} de vitesse</p>` : ''}
+    </div>`;
+}
+
 // ---- Niveau 3 : le serveur de prod (3 baies) à défendre, juste au-dessus du point de départ ----
 function createServer() {
   const w = 132, h = 22, x = 0, y = -90;
@@ -1074,6 +1253,7 @@ function damageServer(dmg) {
 
 // Un ennemi tire un projectile (diapo PowerPoint, ticket du DSI…) vers un angle donné
 function enemyShoot(e, angle, speed, sprite, dmg) {
+  sprite = (LEVELS[game.level].shots || {})[sprite] || sprite; // orbe magique, boule de feu…
   game.enemyShots.push({ x: e.x, y: e.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 3, dmg, sprite, r: 9, dead: false });
 }
 
@@ -1091,11 +1271,19 @@ function spawnBoss(text, kind = game.bossOrder[game.bossCount++ % game.bossOrder
   const bt = BOSS_TYPES[kind];
   spawnEnemy('director', 'boss');
   const e = game.enemies[game.enemies.length - 1];
-  Object.assign(e, { kind, name: bt.name, sprite: bt.sprite, hp: e.hp * bt.hpMult, maxHp: e.maxHp * bt.hpMult });
+  const monster = LEVELS[game.level].monsters && FAIRY_BOSSES[kind];
+  Object.assign(e, { kind, name: monster ? monster.name : bt.name, sprite: monster ? monster.sprite : bt.sprite, hp: e.hp * bt.hpMult, maxHp: e.maxHp * bt.hpMult });
   Sfx.boss();
-  Sfx.sayName('boss', 'Un directeur arrive !');
-  game.banner = { text: text.replace('{name}', bt.name), t: 3 };
+  if (!monster) Sfx.sayName('boss', 'Un directeur arrive !');
+  game.banner = { text: monster ? monster.banner : text.replace('{name}', bt.name), t: 3 };
   e.introDone = false; // sa réplique d'arrivée attend qu'il soit visible à l'écran (voir enemyBehavior)
+}
+
+// Répliques d'un directeur (ou du monstre qui le remplace au niveau 4) et clé de sa voix enregistrée
+function bossLines(e) {
+  return LEVELS[game.level].monsters
+    ? { lines: FAIRY_BOSSES[e.kind], voice: 'fboss_' + e.kind }
+    : { lines: BOSS_LINES[e.kind], voice: 'boss_' + e.kind };
 }
 
 // Comportements particuliers ; renvoie la vitesse à appliquer, ou null pour la poursuite normale
@@ -1104,14 +1292,14 @@ function enemyBehavior(e, dt, dx, dy, dist, spd) {
     // Réplique d'arrivée (bulle + voix) dès qu'il entre vraiment dans l'écran
     const p = game.player, h = Sprites[e.sprite || e.type].frames[0].height * e.scale;
     if (Math.abs(e.x - p.x) < W / 2 - 40 && Math.abs(e.y - p.y) < H / 2 - h / 2 - 20) {
-      const line = BOSS_LINES[e.kind].arrival;
+      const { lines, voice } = bossLines(e), line = lines.arrival;
       Object.assign(e, { introDone: true, bubble: { text: line, t: 4 }, tauntT: 9 + Math.random() * 4 });
-      Sfx.sayName('boss_' + e.kind, line);
+      Sfx.sayName(voice, line);
     }
   } else if (e.boss) {
     if (e.bubble && (e.bubble.t -= dt) <= 0) e.bubble = null;
     if ((e.tauntT -= dt) <= 0) {
-      const taunts = BOSS_LINES[e.kind].taunts;
+      const taunts = bossLines(e).lines.taunts;
       e.tauntT = 8 + Math.random() * 4;
       e.bubble = { text: taunts[Math.random() * taunts.length | 0], t: 3 };
     }
@@ -1210,11 +1398,14 @@ function spawnEnemy(type = pickEnemyType(), rank = 'normal') {
     flash: 0, kx: 0, ky: 0, hitT: {}, phase: Math.random() * 10, dead: false,
     toServer: !!game.server && rank === 'normal' && Math.random() < SERVER_TARGET_CHANCE,
   });
+  // Niveau féerique : même ennemi, autre apparence
+  const skin = !boss && (LEVELS[game.level].skins || {})[type];
+  if (skin) Object.assign(game.enemies[game.enemies.length - 1], { sprite: skin.sprite, color: skin.color, flying: !!skin.flying });
 }
 
 function hitEnemy(e, dmg, kx = 0, ky = 0) {
   if (e.dead) return;
-  dmg = Math.round(dmg * game.player.might * (0.9 + Math.random() * 0.2));
+  dmg = Math.round(dmg * game.player.might * (1 + game.choco.dmg) * (0.9 + Math.random() * 0.2));
   if (dmgSource && !e.prop) statOf(dmgSource).dmg += Math.min(dmg, Math.max(0, e.hp)); // dégâts réellement utiles
   e.hp -= dmg;
   e.flash = 0.1;
@@ -1232,7 +1423,7 @@ function killEnemy(e) {
   if (dmgSource) statOf(dmgSource).kills++;
   Sfx.kill();
   game.gems.push({ x: e.x, y: e.y, value: e.xp, magnet: false, speed: 0 });
-  if (e.elite || Math.random() < 0.004) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'croissant' });
+  if (e.elite || Math.random() < HEAL_DROP_CHANCE) game.pickups.push({ x: e.x + 16, y: e.y, kind: 'medkit', life: e.elite ? undefined : HEAL_DROP_LIFE });
   if (e.boss) {
     game.bossKills++;
     game.fatality = 2.2;
@@ -1332,8 +1523,10 @@ function update(dt) {
     p.facing = { x: d.x / l, y: d.y / l };
     if (d.x) p.dirX = Math.sign(d.x);
   }
-  p.x += d.x * p.speed * dt;
-  p.y += d.y * p.speed * dt;
+  const speed = p.speed * (1 - game.choco.slow); // niveau 4 : alourdi par le chocolat
+  p.x += d.x * speed * dt;
+  p.y += d.y * speed * dt;
+  if (p.moving && game.choco.slow > 0) game.choco.slow = Math.max(0, game.choco.slow - CHOCO_BURN * dt); // courir fait mincir
   pushOutOfProps(p);
   if (game.goal && insidePiRoom(p)) { endGame(true); return; }
   // Caméra qui suit en douceur
@@ -1431,6 +1624,12 @@ function update(dt) {
       f.text = text;
     }
   }
+  // Certains costumes parlent de temps en temps (Disco boy)
+  const costume = costumeOf(p.charId);
+  if (costume && costume.talk && (game.costumeTalkT -= dt) <= 0) {
+    game.costumeTalkT = 15 + Math.random() * 10;
+    game.playerBubble = { text: costume.talk[Math.random() * costume.talk.length | 0], t: 2.5 };
+  }
   // Super pouvoir : recharge, puis effet en cours
   if (game.specialCd > 0 && (game.specialCd -= dt) <= 0) {
     Sfx.specialReady();
@@ -1457,6 +1656,7 @@ function update(dt) {
     spawnBoss('⚠ Le {name} arrive !', game.bossOrder[game.bossIndex % game.bossOrder.length]);
     game.bossIndex++;
   }
+  if (LEVELS[game.level].chocolate) updateChocolate(dt);
   // Événements aléatoires et tickets au sol
   if (game.event && (game.event.t -= dt) <= 0) game.event = null;
   if ((game.eventT -= dt) <= 0) {
@@ -1632,11 +1832,15 @@ function update(dt) {
     game.gems[0].value += g.value;
   }
 
-  // Bonus au sol
+  // Bonus au sol (certains disparaissent au bout d'un moment : les chocolats)
+  for (const pk of game.pickups) if (pk.life !== undefined && (pk.life -= dt) <= 0) pk.dead = true;
   for (const pk of game.pickups) {
+    if (pk.dead) continue;
     if (Math.hypot(p.x - pk.x, p.y - pk.y) < p.r + 18) {
       pk.dead = true;
-      if (pk.kind === 'chest') {
+      if (pk.kind === 'chocolate') {
+        eatChocolate();
+      } else if (pk.kind === 'chest') {
         openChest();
       } else if (pk.kind === 'ticket') {
         // Ticket résolu : bonus d'XP proportionnel au niveau en cours
@@ -1825,7 +2029,7 @@ document.getElementById('musicBtn').onclick = () => { Sfx.toggleMusic(); renderS
 document.getElementById('sfxBtn').onclick = () => { Sfx.toggleSfx(); renderSoundButtons(); };
 
 function togglePause() {
-  if (game.state === 'play') { game.state = 'pause'; renderSoundButtons(); show('pause'); }
+  if (game.state === 'play') { game.state = 'pause'; renderSoundButtons(); renderPauseSummary(); show('pause'); }
   else if (game.state === 'pause') { game.state = 'play'; hide('pause'); }
 }
 
@@ -1930,6 +2134,8 @@ async function showBoard(level = boardLevel) {
   try { box.innerHTML = leaderboardTable(await Leaderboard.top(level)); }
   catch (e) { box.innerHTML = '<p class="help">Classement indisponible (connexion ?)</p>'; }
 }
+document.getElementById('backToTitle').onclick = () => { hide('start'); game.state = 'title'; show('title'); };
+document.getElementById('backToChars').onclick = () => { hide('levels'); openCharSelect(); };
 document.getElementById('boardBtn').onclick = () => showBoard(selectedLevel);
 document.getElementById('boardClose').onclick = () => hide('board');
 
@@ -2102,6 +2308,7 @@ function draw() {
     ctx.drawImage(img, Math.round(g.x - img.width / 2), Math.round(g.y - img.height / 2 + Math.sin(game.time * 4 + g.x) * 2));
   }
   for (const pk of game.pickups) {
+    if (pk.life !== undefined && pk.life < 3 && Math.floor(game.time * 8) % 2) continue; // va disparaître : clignote
     const img = Textures[pk.kind];
     if (pk.kind === 'chest' || pk.kind === 'bolt' || pk.kind === 'ticket') {
       const glow = (pk.kind === 'chest' ? 30 : 18) + Math.sin(game.time * 5) * 6;
@@ -2186,6 +2393,26 @@ function draw() {
     }
   }
 
+  // Souris filaire : fil tendu vers la souris (lancée ou en lasso)
+  ctx.strokeStyle = '#d8dce4';
+  ctx.lineWidth = 2;
+  for (const pr of game.projectiles) {
+    if (!pr.cable) continue;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.quadraticCurveTo((p.x + pr.x) / 2, (p.y + pr.y) / 2 + 20, pr.x, pr.y);
+    ctx.stroke();
+  }
+  for (const w of game.weapons) {
+    if (w.id !== 'mouse' || !w.lasso) continue;
+    const ls = w.lasso, img = Textures.mouse;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.quadraticCurveTo((p.x + ls.x) / 2 + 10, (p.y + ls.y) / 2 - 10, ls.x, ls.y);
+    ctx.stroke();
+    ctx.drawImage(img, Math.round(ls.x - img.width / 2), Math.round(ls.y - img.height / 2));
+  }
+
   // Projectiles des ennemis (qui tournent sur eux-mêmes)
   for (const sh of game.enemyShots) {
     if (!inView(sh.x, sh.y)) continue;
@@ -2219,6 +2446,17 @@ function draw() {
     }
     ctx.drawImage(img, -img.width * k / 2, -img.height * k / 2, img.width * k, img.height * k);
     ctx.restore();
+  }
+
+  // Chocolats en train de tomber (ombre qui grossit à l'approche)
+  for (const c of game.chocoFalling) {
+    if (!inView(c.x, c.y, 80)) continue;
+    const k = c.t / c.dur, img = Textures.chocolate;
+    ctx.fillStyle = `rgba(0,0,0,${0.1 + k * 0.25})`;
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y + 8, 4 + k * 10, 2 + k * 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.drawImage(img, Math.round(c.x - img.width / 2), Math.round(c.y - img.height / 2 - (1 - k) * 300));
   }
 
   // Halos lumineux : projectiles, tirs ennemis, gemmes, serveur
@@ -2461,6 +2699,27 @@ function drawProp(pr, img, dx = 0) {
       ctx.fillStyle = on ? (i % 3 ? '#60ff90' : '#60b0ff') : '#1a2a20';
       ctx.fillRect(x + 30, y + 10 + i * 7, 2, 2);
     }
+  } else if (pr.type === 'unicorn') {
+    // De temps en temps, un prout arc-en-ciel s'échappe derrière la licorne
+    const period = 14 + (Math.abs(pr.x * 7 + pr.y * 3) % 8), dur = 2.2;
+    const v = t + Math.abs(pr.x) * 0.37, cycle = Math.floor(v / period), ph = v % period; // décalage propre à chaque licorne
+    if (ph < dur) {
+      if (pr.lastFart !== cycle && game.state === 'play') { pr.lastFart = cycle; Sfx.fart(); }
+      const k = ph / dur, cols = ['#ff7aa8', '#ffc070', '#fff07a', '#8aeea0', '#8ac8ff', '#c8a0ff'];
+      for (let i = 0; i < 9; i++) {
+        const kk = Math.max(0, k - i * 0.05);
+        if (!kk) continue;
+        ctx.globalAlpha = Math.max(0, 0.9 - kk * 0.9);
+        ctx.fillStyle = cols[i % cols.length];
+        ctx.beginPath();
+        ctx.arc(x + 12 - kk * 70 - i * 6, y + 30 - kk * 26 + Math.sin(i * 1.7 + t * 4) * 6, 7 + kk * 20 - i * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = Math.max(0, 1 - k);
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 3; i++) ctx.fillRect(x - k * 40 - i * 9, y + 20 - k * 22 + i * 7, 2, 2);
+      ctx.globalAlpha = 1;
+    }
   } else if (pr.type === 'printer') {
     const ph = (t * 0.5 + pr.x * 0.01) % 2; // une feuille sort toutes les 2 secondes
     if (ph < 0.6) {
@@ -2471,7 +2730,7 @@ function drawProp(pr, img, dx = 0) {
 }
 
 function drawPlayer(p) {
-  const set = Sprites[p.charId];
+  const set = skinSprites(p.charId);
   const img = walkImage(set, p.dirX, p.moving, 0);
   // Népal attitude : le personnage lévite, entouré d'une aura
   const levitate = game.special && game.special.levitate && game.special.t > 0;
@@ -2487,7 +2746,25 @@ function drawPlayer(p) {
     ctx.fill();
   }
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2) ctx.globalAlpha = 0.4;
-  ctx.drawImage(img, Math.round(p.x - img.width / 2), Math.round(p.y - img.height / 2 + bob));
+  const fat = chocoFat(), fw = img.width * fat; // niveau 4 : le chocolat fait grossir
+  ctx.drawImage(img, Math.round(p.x - fw / 2), Math.round(p.y - img.height / 2 + bob), Math.round(fw), img.height);
+  const costume = costumeOf(p.charId);
+  if (costume && costume.fx === 'storm' && (game.time % 2.3) < 0.2) {
+    // Tempête Cécile : un petit éclair jaillit du nuage
+    const x0 = p.x + Math.sin(Math.floor(game.time / 2.3) * 7) * 8, y0 = p.y + 4;
+    ctx.globalCompositeOperation = 'lighter';
+    drawGlow(x0, y0 + 14, 30, '#fff0a0', 0.6);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#ffe860';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 - 6, y0 + 10);
+    ctx.lineTo(x0 + 3, y0 + 12);
+    ctx.lineTo(x0 - 4, y0 + 26);
+    ctx.stroke();
+  }
   ctx.globalAlpha = 1;
   // Barre de vie sous le joueur
   const bw = 36, by = p.y + img.height / 2 + 4;
@@ -2782,6 +3059,31 @@ function drawHud() {
     ctx.fillText(label, W / 2, ay + 34);
   }
 
+  // Niveau 4 : encart à droite (chocolats mangés, bonus de dégâts, malus de vitesse)
+  if (LEVELS[game.level].chocolate && game.state !== 'title' && game.state !== 'start' && game.state !== 'levels') {
+    const ch = game.choco, bw = 196, bx = W - bw - 12, by = 84;
+    ctx.fillStyle = 'rgba(40,20,10,0.75)';
+    ctx.fillRect(bx, by, bw, 74);
+    ctx.strokeStyle = '#e8b830';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 1, by + 1, bw - 2, 72);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px sans-serif';
+    const lines = [
+      ['🍫 Chocolats', String(ch.eaten), '#fff'],
+      ['⚔️ Dégâts', '+' + (ch.dmg * 100).toFixed(1).replace('.', ',') + ' %', '#7fe07f'],
+      ['🐢 Vitesse', '−' + (ch.slow * 100).toFixed(1).replace('.', ',') + ' %', ch.slow > 0 ? '#ff8a6a' : '#fff'],
+    ];
+    lines.forEach(([label, val, col], i) => {
+      ctx.fillStyle = '#f0e0c0';
+      ctx.fillText(label, bx + 10, by + 22 + i * 20);
+      ctx.fillStyle = col;
+      ctx.textAlign = 'right';
+      ctx.fillText(val, bx + bw - 10, by + 22 + i * 20);
+      ctx.textAlign = 'left';
+    });
+  }
+
   // Événement en cours (en bas au milieu) et son coupé (en haut à droite)
   if (game.event) {
     const label = `${game.event.label} · ${Math.ceil(game.event.t)} s`;
@@ -2924,7 +3226,7 @@ document.getElementById('title').onclick = openCharSelect;
 buildCharSelect();
 buildLevelSelect();
 buildDifficultySelect();
-Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id), ...Object.keys(BOSS_LINES).map(k => 'boss_' + k)]);
+Sfx.preloadVoices([...Object.keys(CHARACTERS), ...ANNOUNCES.map(a => a.key), ...Object.keys(CHARACTERS).map(id => 'special_' + id), ...Object.keys(BOSS_LINES).map(k => 'boss_' + k), ...Object.keys(FAIRY_BOSSES).map(k => 'fboss_' + k)]);
 newGame(selectedChar);
 game.state = 'title';
 requestAnimationFrame(loop);

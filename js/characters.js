@@ -12,6 +12,7 @@ const ANNOUNCES = [
   { key: 'boss',      label: "Arrivée d'un directeur", text: 'Un directeur arrive !' },
   { key: 'fatality',  label: "Mort d'un directeur",    text: 'Fatality !' },
   { key: 'legendary', label: 'Arme légendaire',        text: 'Arme légendaire !' },
+  { key: 'chocolate', label: 'Pluie de chocolat',      text: 'Pluie de chocolat !' },
 ];
 
 // Répliques des directeurs : arrival = réplique d'arrivée (lue à voix haute, enregistrable : voices/boss_<id>.webm),
@@ -21,6 +22,14 @@ const BOSS_LINES = {
   drh: { name: 'DRH', arrival: "Il faut qu'on parle de ton entretien annuel…", taunts: ['Tu as bien posé tes congés ?', 'Ça restera entre nous.', "J'ai recruté des stagiaires !", 'Ta mutuelle couvre ça ?'] },
   daf: { name: 'DAF', arrival: 'On va devoir parler de ton budget…', taunts: ["Cette dépense n'était pas prévue.", 'Il faut faire des économies !', "C'est hors budget.", 'Tu as une note de frais ?'] },
   pdg: { name: 'PDG', arrival: 'Bonjour à tous : petite réorganisation !', taunts: ['On est une grande famille.', 'Il faut être agile !', "La vision, c'est moi.", 'Les résultats sont excellents… pour moi.'] },
+};
+
+// Niveau 4 : les directeurs deviennent des monstres (voix enregistrable : voices/fboss_<id>.webm)
+const FAIRY_BOSSES = {
+  dsi: { name: 'Dragon', sprite: 'dragon', banner: '⚠ Un dragon surgit !', arrival: 'GRRR… Qui a encore touché à mon trésor ?', taunts: ['Je vais tout brûler !', "Mon trésor, c'est la prod !", 'Roooaaar !', 'Ça sent le roussi…'] },
+  drh: { name: 'Sorcière', sprite: 'witch', banner: '⚠ Une sorcière approche !', arrival: "Hé hé hé… Mes petites fées, à l'attaque !", taunts: ['Un sort pour ton entretien annuel…', 'Abracadabra !', 'Tu veux une pomme ?', 'Mon chaudron déborde de CV.'] },
+  daf: { name: 'Loup-garou', sprite: 'werewolf', banner: '⚠ Un loup-garou rôde !', arrival: 'Aouuuh ! Les budgets sont maigres ce mois-ci…', taunts: ["J'ai les crocs !", 'Aouuuh !', 'Cette dépense, je la croque.', 'Pleine lune, plein budget.'] },
+  pdg: { name: 'Roi des Trolls', sprite: 'trollking', banner: '⚠ Le Roi des Trolls arrive !', arrival: "Ici, c'est MON pont… et MA réorganisation !", taunts: ['Péage obligatoire !', 'Les trolls, une grande famille.', 'Qui ose traverser ?', 'Je troll, donc je suis.'] },
 };
 
 // Super pouvoir partagé par les deux Delivery Managers
@@ -142,7 +151,7 @@ const CHARACTERS = {
   bastien: {
     name: 'Bastien', role: 'Incident Manager', team: 'Process',
     desc: 'Son crâne chauve reflète les néons. Aucun incident ne lui résiste.',
-    weapon: 'coffee',
+    weapon: 'mouse',
     passives: { might: 1 },
     special: { name: 'Distribution de tickets', icon: '🎫', desc: 'Lance des tickets sur tous les ennemis pour les éliminer.', type: 'barrage', sprites: ['ticket'] },
   },

@@ -1174,3 +1174,632 @@ const DECALS = {
     for (const [c, o] of [['#2f6fd0', 0], ['#e0b020', 5], ['#d03030', 10]]) { g.strokeStyle = c; g.lineWidth = 2; g.beginPath(); g.moveTo(0, 6 + o); g.bezierCurveTo(50, o, 100, 14 + o / 2, 160, 6 + o); g.stroke(); }
   }),
 };
+
+// ---- Niveau 4 « Les gourmands du Delivery » : monde féerique ----
+// Sol : herbe pastel avec des petites fleurs et des paillettes
+function makeFairyFloor() {
+  const N = 128, S = 2;
+  const rnd = mulberry32(777);
+  return makeCanvas(N * S, N * S, g => {
+    const px = (x, y, c) => { g.fillStyle = c; g.fillRect(((x % N + N) % N) * S, ((y % N + N) % N) * S, S, S); };
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) px(x, y, (x * 7 + y * 13) % 5 ? '#86c27e' : '#7cb874');
+    for (let i = 0; i < 900; i++) px(rnd() * N | 0, rnd() * N | 0, rnd() < 0.5 ? '#6ea866' : '#98d090');
+    const petals = ['#ffb0d8', '#fff0a0', '#c8b0ff', '#ffffff'];
+    for (let i = 0; i < 40; i++) {
+      const x = rnd() * N | 0, y = rnd() * N | 0, c = petals[rnd() * petals.length | 0];
+      px(x - 1, y, c); px(x + 1, y, c); px(x, y - 1, c); px(x, y + 1, c); px(x, y, '#ffd040');
+    }
+    for (let i = 0; i < 25; i++) px(rnd() * N | 0, rnd() * N | 0, '#ffffff');
+  });
+}
+Textures.fairy = makeFairyFloor();
+
+Object.assign(PROP_IMAGES, {
+  // Arbre à bonbons : tronc en sucre d'orge, feuillage de barbe à papa, bonbons accrochés
+  candytree: makeCanvas(84, 112, g => {
+    for (let y = 60; y < 108; y += 6) drawRects(g, [[37, y, 10, 3, '#ffffff'], [37, y + 3, 10, 3, '#e03050']]);
+    circle(g, 42, 40, 30, '#ff9ad0'); circle(g, 24, 50, 18, '#ffb8e0'); circle(g, 60, 50, 18, '#ffb8e0'); circle(g, 42, 28, 18, '#ffc8e8');
+    for (const [x, y, c] of [[28, 36, '#ff4060'], [52, 30, '#40c0ff'], [44, 52, '#ffd040'], [62, 46, '#8040ff'], [22, 52, '#40e080']]) {
+      circle(g, x, y, 5, c); drawRects(g, [[x - 1, y - 1, 2, 2, '#ffffff']]);
+    }
+  }),
+  // Buisson garni de canettes de soda
+  canbush: makeCanvas(80, 56, g => {
+    circle(g, 22, 34, 18, '#3a9a4a'); circle(g, 56, 34, 18, '#3a9a4a'); circle(g, 40, 26, 20, '#4aae58'); circle(g, 30, 22, 8, '#6ac878');
+    const cans = [[18, 30, '#e02030'], [40, 18, '#2f6fd0'], [58, 32, '#30b050'], [32, 38, '#f0a020']];
+    for (const [x, y, c] of cans) drawRects(g, [[x - 4, y - 6, 8, 12, c], [x - 4, y - 6, 8, 2, '#c8ccd4'], [x - 2, y - 2, 4, 3, '#ffffff']]);
+    drawRects(g, [[6, 48, 68, 4, 'rgba(0,0,0,0.15)']]);
+  }),
+  // Fleur rigolote avec un visage
+  funflower: makeCanvas(40, 64, g => {
+    drawRects(g, [[19, 26, 3, 36, '#3a9a4a']]);
+    circle(g, 12, 44, 6, '#4aae58'); circle(g, 28, 50, 6, '#4aae58');
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; circle(g, 20 + Math.cos(a) * 11, 18 + Math.sin(a) * 11, 7, i % 2 ? '#ff7ac0' : '#ffa0d8'); }
+    circle(g, 20, 18, 9, '#ffd040');
+    drawRects(g, [[16, 15, 2, 3, '#2a1a10'], [22, 15, 2, 3, '#2a1a10']]);
+    g.strokeStyle = '#2a1a10'; g.lineWidth = 1.5; g.beginPath(); g.arc(20, 19, 4, 0.2, Math.PI - 0.2); g.stroke();
+    circle(g, 14, 21, 2, '#ff8a8a'); circle(g, 26, 21, 2, '#ff8a8a');
+  }),
+  // Licorne avec crinière arc-en-ciel et corne dorée
+  unicorn: makeCanvas(72, 64, g => {
+    drawRects(g, [[16, 26, 36, 20, '#fafafa'], [16, 26, 36, 3, '#ffffff'], [18, 46, 6, 14, '#f0f0f0'], [28, 46, 6, 14, '#f0f0f0'], [38, 46, 6, 14, '#f0f0f0'], [46, 46, 6, 14, '#f0f0f0']]);
+    for (const x of [18, 28, 38, 46]) drawRects(g, [[x, 58, 6, 3, '#c8a0e0']]);
+    drawRects(g, [[44, 10, 16, 22, '#fafafa'], [52, 16, 14, 10, '#fafafa'], [62, 20, 4, 4, '#ffc0d0'], [52, 14, 3, 3, '#2a2a3a']]);
+    g.fillStyle = '#ffd040'; g.beginPath(); g.moveTo(52, 10); g.lineTo(58, -2); g.lineTo(56, 11); g.fill();
+    const rainbow = ['#ff4060', '#ffa030', '#ffe040', '#40d070', '#40a0ff', '#a060ff'];
+    rainbow.forEach((c, i) => { drawRects(g, [[40 - i * 2, 8 + i * 4, 6, 6, c], [10 - i, 24 + i * 3, 8, 3, c]]); });
+  }),
+});
+Object.assign(PROPS, {
+  candytree: { img: PROP_IMAGES.candytree, w: 22, h: 12, top: 96 },
+  canbush:   { img: PROP_IMAGES.canbush,   w: 64, h: 18, top: 32 },
+  funflower: { img: PROP_IMAGES.funflower, w: 12, h: 8,  top: 54 },
+  unicorn:   { img: PROP_IMAGES.unicorn,   w: 40, h: 14, top: 46 },
+});
+
+Object.assign(DECALS, {
+  sparkles: makeCanvas(60, 40, g => { for (const [x, y] of [[8, 10], [30, 6], [50, 20], [20, 30], [44, 34]]) { g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(x - 3, y, 7, 1); g.fillRect(x, y - 3, 1, 7); } }),
+  wrappers: makeCanvas(56, 32, g => {
+    for (const [x, y, c, r] of [[14, 12, '#ff4080', 0.4], [38, 20, '#40b0ff', -0.3]]) {
+      g.save(); g.translate(x, y); g.rotate(r);
+      drawRects(g, [[-6, -3, 12, 6, c], [-10, -4, 4, 8, c], [6, -4, 4, 8, c], [-4, -2, 8, 1, '#ffffff']]); g.restore();
+    }
+  }),
+  rainbow: makeCanvas(120, 50, g => {
+    ['#ff4060', '#ffa030', '#ffe040', '#40d070', '#40a0ff', '#a060ff'].forEach((c, i) => {
+      g.strokeStyle = c; g.globalAlpha = 0.55; g.lineWidth = 4; g.beginPath(); g.arc(60, 50, 50 - i * 5, Math.PI, Math.PI * 2); g.stroke();
+    });
+    g.globalAlpha = 1;
+  }),
+});
+
+// Chocolat à ramasser (carré de chocolat dans son papier doré)
+Textures.chocolate = pixelSprite([
+  '..gggggg..',
+  '.gbBBbBBg.',
+  'gbBBbBBbBg',
+  'gbbbbbbbbg',
+  'gbBBbBBbBg',
+  'gbBBbBBbBg',
+  '.gbbbbbbg.',
+  '..gggggg..',
+], { g: '#e8b830', b: '#4a2810', B: '#7a4a24' }, 3);
+
+// ---- Niveau 4 : créatures féeriques (mêmes comportements que les collègues, autre apparence) ----
+const FAIRY_ROWS = [
+  '....hhhh....',
+  '...hhhhhh...',
+  'ww.hseseh.ww',
+  'www.ssmss.ww',
+  'wwwwddddwwww',
+  '.wwddddddww.',
+  '..dddddddd..',
+  '..dddddddd..',
+  '...dddddd...',
+  '....s..s....',
+  '....s..s....',
+  '...kk..kk...',
+];
+const SLIME_ROWS = [
+  '....gggg....',
+  '..gggggggg..',
+  '.gGGgggggggg',
+  '.gWWgggWWgg.',
+  'ggWbgggWbggg',
+  'gggggggggggg',
+  'gggggmmggggg',
+  'gggggggggggg',
+  '.gggggggggg.',
+  '..dddddddd..',
+];
+const MUSHROOM_ROWS = [
+  '...rrrrrr...',
+  '.rrWrrrrWrr.',
+  'rrrrrrrrrrrr',
+  'rWrrrrrrrrWr',
+  'rrrrrrrrrrrr',
+  '..cccccccc..',
+  '..cecccecc..',
+  '..cccmmccc..',
+  '..cccccccc..',
+  '...cccccc...',
+  '...cc..cc...',
+  '..kkk..kkk..',
+];
+// Monstres (boss)
+const DRAGON_ROWS = [
+  '.........rr...',
+  '........rrrr..',
+  '..w.....rerrr.',
+  '.ww....rrrrrrr',
+  'www...rrrrrryy',
+  'wwwrrrrrrrr...',
+  '.wrrrrrrrrr...',
+  '..rrrRRRRrr...',
+  '..rrRRRRRRr...',
+  '.rrrrRRRRrr...',
+  'rr.rrrrrrrr...',
+  'r..rr....rr...',
+  '...rr....rr...',
+  '..kkk...kkk...',
+];
+const WITCH_ROWS = [
+  '.....kk.....',
+  '....kkkk....',
+  '...kkkkkk...',
+  '.kkkkkkkkkk.',
+  '...hssssh...',
+  '..hsesseshh.',
+  '...ssnnss...',
+  '...ssmmss...',
+  '..pppppppp..',
+  'pppppppppppp',
+  '.pppppppppp.',
+  '..pppppppp..',
+  '..pppppppp..',
+  '...pp..pp...',
+  '..kkk..kkk..',
+];
+const WOLF_ROWS = [
+  '.gg......gg.',
+  '.ggg....ggg.',
+  '.gggggggggg.',
+  '.ggeggggegg.',
+  '..gggggggg..',
+  '..ggwnnwgg..',
+  '...gwwwwg...',
+  '.gggggggggg.',
+  'gggGGGGGGggg',
+  'gg.GGGGGG.gg',
+  'g..GGGGGG..g',
+  '...gg..gg...',
+  '...gg..gg...',
+  '..ggg..ggg..',
+];
+const TROLL_ROWS = [
+  '..y.y..y.y..',
+  '..yyyyyyyy..',
+  '..yryyyyry..',
+  '.gggggggggg.',
+  '.ggeggggegg.',
+  'gggggnnggggg',
+  '.gggwmmwggg.',
+  '.bbbbbbbbbb.',
+  'bbbbbbbbbbbb',
+  'gbbbbbbbbbbg',
+  'g.bbbbbbbb.g',
+  '..bbb..bbb..',
+  '..ggg..ggg..',
+  '.kkkk..kkkk.',
+];
+Object.assign(Sprites, {
+  fairy: enemySet(walkFrames(FAIRY_ROWS, { h: '#ffe070', s: '#f8d8c0', e: '#2a2a5a', m: '#e06080', w: '#bfe6ff', d: '#5a9aff', k: '#ffffff' })),
+  pixie: enemySet(walkFrames(FAIRY_ROWS, { h: '#c8a0ff', s: '#f8d8c0', e: '#2a2a5a', m: '#e06080', w: '#ffd0f0', d: '#ff7ac0', k: '#ffffff' })),
+  slime: enemySet(walkFrames(SLIME_ROWS, { g: '#ff8ad0', G: '#ffd0ee', W: '#ffffff', b: '#2a1a3a', m: '#a03070', d: '#d060a8' })),
+  goblin: enemySet(walkFrames(COMMERCIAL_ROWS, { ...COMMERCIAL_PAL, h: '#d03030', b: '#2a5a1a', s: '#7ac850', P: '#5a3a1a', B: '#7a5a2a', t: '#e0a020', p: '#4a3a1a' })),
+  wizard: enemySet(walkFrames(MANAGER_ROWS, { ...MANAGER_PAL, h: '#d8d8e8', s: '#f0c8a0', J: '#5a3a9a', W: '#ffd040', t: '#ffd040', k: '#2a1a4a' })),
+  mushroom: enemySet(walkFrames(MUSHROOM_ROWS, { r: '#e03040', W: '#ffffff', c: '#f8ecd8', e: '#2a1a10', m: '#c06060', k: '#a07850' })),
+  dragon: enemySet(walkFrames(DRAGON_ROWS, { r: '#c02828', R: '#f0a040', w: '#8a2020', e: '#ffe040', y: '#ffb020', k: '#3a1010' })),
+  witch: enemySet(walkFrames(WITCH_ROWS, { k: '#1a1a2a', h: '#e06020', s: '#8ad070', e: '#ffe040', n: '#6aa050', m: '#3a1a2a', p: '#4a2a6a' })),
+  werewolf: enemySet(walkFrames(WOLF_ROWS, { g: '#6a6a7a', G: '#a0a0b0', e: '#ffd020', w: '#ffffff', n: '#1a1a1a' })),
+  trollking: enemySet(walkFrames(TROLL_ROWS, { y: '#ffd040', r: '#e03040', g: '#6a9a5a', e: '#ff4020', n: '#4a6a3a', w: '#ffffff', m: '#3a1a1a', b: '#6a4a2a', k: '#3a2a1a' })),
+});
+
+// Projectiles féeriques : orbe magique (magicien) et boule de feu (dragon)
+const glowBall = (inner, outer) => makeCanvas(18, 18, g => {
+  const gr = g.createRadialGradient(9, 9, 1, 9, 9, 9);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.35, inner); gr.addColorStop(1, outer);
+  g.fillStyle = gr; g.beginPath(); g.arc(9, 9, 8, 0, Math.PI * 2); g.fill();
+});
+Textures.orb = glowBall('#d080ff', 'rgba(120,40,200,0)');
+Textures.fireball = glowBall('#ffb020', 'rgba(220,40,0,0)');
+
+// ---- Easter eggs : costumes secrets (clic molette sur son personnage en jeu) ----
+const COSTUMES = {
+  // Sheryna en tenue de running : bandeau, brassière, short et baskets fluo
+  sheryna: [[
+    '..hhhhhh..',
+    '.rrrrrrrr.',
+    '.hhsssshh.',
+    '.hsessesh.',
+    '.hssmmssh.',
+    '.hhtttthh.',
+    '.stttttts.',
+    '..oooooo..',
+    '..ss..ss..',
+    '..ss..ss..',
+    '.nn....nn.',
+  ], { h: '#2a1810', s: '#e8b890', e: '#111', m: '#c05060', r: '#ff3a8a', t: '#30d0c0', o: '#2a2a3a', n: '#e8ff40' }],
+  // Bastien en maillot et short du PSG
+  bastien: [[
+    '....ssss....',
+    '...sswsss...',
+    '..ssssssss..',
+    '..sesssses..',
+    '..ssssssss..',
+    '..BssmmssB..',
+    '...BBBBBB...',
+    '.nnnwrrwnnn.',
+    '.snnwrrwnns.',
+    '..nnwrrwnn..',
+    '..nnnnnnnn..',
+    '..ss....ss..',
+    '.kkk....kkk.',
+  ], { s: '#e8b890', w: '#ffffff', e: '#111', m: '#904040', B: '#3a2a20', n: '#0a1a48', r: '#d01a2a', k: '#1a1a1a' }],
+  // Matthieu déguisé en lapin mascotte
+  matthieu: [[
+    '..ww....ww..',
+    '..wp....pw..',
+    '..wp....pw..',
+    '..wwwwwwww..',
+    '.wwwwwwwwww.',
+    '.wwewwwweww.',
+    '.wwwwnnwwww.',
+    '.wwwwmmwwww.',
+    '..wwwwwwww..',
+    '.wwwwppwwww.',
+    'wwwwppppwwww',
+    '.wwwwppwwww.',
+    '..wwwwwwww..',
+    '..ww....ww..',
+    '.www....www.',
+  ], { w: '#f4f4f4', p: '#ffb0c8', e: '#111', n: '#ff7090', m: '#c05060' }],
+  // Franck en Père Noël : bonnet à pompon, barbe blanche, costume rouge, ceinture dorée
+  franck: [[
+    '....rrrr....',
+    '...rrrrrrww.',
+    '..wwwwwwww..',
+    '..ssssssss..',
+    '.WGeGssGeGW.',
+    '..WWWmmWWW..',
+    '..WWWWWWWW..',
+    '.rrrWWWWrrr.',
+    'srrrrrrrrrrs',
+    '.rrrrrrrrrr.',
+    '.kkkkyykkkk.',
+    '..rr....rr..',
+    '.kkk....kkk.',
+  ], { r: '#d02020', w: '#ffffff', W: '#f4f4f4', s: '#f0c8a0', G: '#222', e: '#3a6a9a', m: '#a04040', k: '#1a1a1a', y: '#ffd040' }],
+  // Coline, la cheffe : couronne, tailleur noir à boutons dorés, chemise blanche
+  coline: [[
+    '...y.yy.y...',
+    '...yryyry...',
+    '...hhhhhh...',
+    '..hHhhhhHh..',
+    '.hHhssssHhh.',
+    '.hhsessesHh.',
+    '.hHssmmssHh.',
+    '.hhJwwwwJhh.',
+    '.hHJJwwJJHh.',
+    '.sJJJyJJJJs.',
+    '..JJJyJJJJ..',
+    '..pppppppp..',
+    '..pp....pp..',
+    '.kkk....kkk.',
+  ], { y: '#ffd040', r: '#e03040', h: '#5a2a18', H: '#8a4428', s: '#f4cca8', e: '#3a2010', m: '#c04848', J: '#1a1a2a', w: '#ffffff', p: '#2a2a3a', k: '#111111' }],
+  // Amélie, future maman : robe de grossesse bleu ciel, ventre bien rond
+  amelie: [[
+    '....hhhhhh....',
+    '...hHHhhHHh...',
+    '..hHhsssssHh..',
+    '..hhsessesHh..',
+    '..hHfsmmsfHh..',
+    '..hHhbbbbhHh..',
+    '..hhbbbbbbhh..',
+    '..sbbbbbbbbs..',
+    '..bbbBBBBbbb..',
+    '.bbbBBBBBBbbb.',
+    '.bbbbBBBBbbbb.',
+    '..bbbbbbbbbb..',
+    '....ss..ss....',
+    '....ss..ss....',
+    '...kkk..kkk...',
+  ], { h: '#e0601c', H: '#ffa040', s: '#f8d4b8', f: '#e0a080', e: '#208a90', m: '#d04848', b: '#7ac0f0', B: '#a8dcff', k: '#2a2a3a' }],
+  // Imen, future maman : robe de grossesse rouge, ventre bien rond
+  imen: [[
+    '....hHhhHh....',
+    '...hhHhhhHh...',
+    '..hHhsssshHh..',
+    '..hhsessesHh..',
+    '..HhssmmsshH..',
+    '..hh.ssss.hh..',
+    '...rrrrrrrr...',
+    '..srrrrrrrrs..',
+    '..rrrRRRRrrr..',
+    '.rrrRRRRRRrrr.',
+    '.rrrrRRRRrrrr.',
+    '..rrrrrrrrrr..',
+    '....ss..ss....',
+    '....ss..ss....',
+    '...kkk..kkk...',
+  ], { h: '#6a2a1a', H: '#9a4a2a', s: '#f0c8a0', e: '#111', m: '#c03040', r: '#d02a2a', R: '#f06060', k: '#1a1a1a' }],
+};
+
+// Trousse de soin lâchée par les ennemis (+30 PV)
+Textures.medkit = pixelSprite([
+  '...hhhh...',
+  '...h..h...',
+  'wwwwwwwwww',
+  'wwwwrrwwww',
+  'wwwwrrwwww',
+  'wwrrrrrrww',
+  'wwrrrrrrww',
+  'wwwwrrwwww',
+  'wwwwrrwwww',
+  'gggggggggg',
+], { h: '#8a8e96', w: '#f4f4f4', r: '#e02a2a', g: '#b8bcc4' }, 3);
+
+// ---- Costumes supplémentaires (2e, 3e tenue…) : [grille, palette] dans l'ordre du choix ----
+const MORE_COSTUMES = {
+  // Stéphane à la retraite : sa tenue habituelle… avec une canne
+  stephan: [[[
+    '..w.wwww.w...',
+    '..wwWwwWww...',
+    '.wwssssssww..',
+    '..sesssses...',
+    '..ssssssss...',
+    '...ssmmss..CC',
+    '..yyyccyyy..C',
+    '.syyyyyyyys.C',
+    '..yyyyyyyy..C',
+    '..pppppppp..C',
+    '..pp....pp..C',
+    '..pp....pp..C',
+    '.kkk....kkk.C',
+  ], { w: '#f4f4f4', W: '#c8c8c8', s: '#f0c8a0', e: '#3a7ac0', m: '#a04040', y: '#e0c040', c: '#f0e080', p: '#4a4a50', k: '#1a1a1a', C: '#7a4a24' }],
+  // Disco boy, façon ABBA : combinaison à paillettes, grand col, pattes d'éléphant, plateformes
+  [[
+    '..w.wwww.w..',
+    '..wwWwwWww..',
+    '.wwssssssww.',
+    '..sesssses..',
+    '..ssssssss..',
+    '...ssmmss...',
+    '.cccddddccc.',
+    'sdDddDddDdds',
+    '.ddDddddDdd.',
+    '..dddDDddd..',
+    '..dddddddd..',
+    '.ddd....ddd.',
+    '.kkk....kkk.',
+  ], { w: '#f4f4f4', W: '#c8c8c8', s: '#f0c8a0', e: '#3a7ac0', m: '#a04040', c: '#d040a0', d: '#e8e8f8', D: '#ffd040', k: '#c8a020' }]],
+
+  // Danila, agent secret : costume noir, chemise blanche, cravate et lunettes noires
+  danila: [[[
+    '...hhhhhh...',
+    '..hhHhhHhh..',
+    '.hhHssssHhh.',
+    '.hhGGssGGHh.',
+    '.hHssmmssHh.',
+    '.hhh.ss.hhh.',
+    '.hhJwttwJhh.',
+    '.sJJwttwJJs.',
+    '..JJJttJJJ..',
+    '..JJJJJJJJ..',
+    '..JJ....JJ..',
+    '..JJ....JJ..',
+    '.kkk....kkk.',
+  ], { h: '#2a1a12', H: '#4a2a1a', s: '#8a5236', G: '#0a0a0a', m: '#a03838', J: '#111118', w: '#ffffff', t: '#111111', k: '#1a1a1a' }]],
+
+  // Sandie en bain de soleil : chapeau de paille, lunettes, maillot, paréo, tongs
+  sandie: [[[
+    '..yyyyyyyy..',
+    '.yyyyyyyyyy.',
+    '.hhhssssHhh.',
+    '.hhGGssGGHh.',
+    '.hhssmmsshh.',
+    '.hhh.ss.hhh.',
+    '.hhsrrrrshh.',
+    '.ssrrrrrrss.',
+    '..ssrrrrss..',
+    '..PPPPPPPP..',
+    '..ss....ss..',
+    '..ss....ss..',
+    '.ggg....ggg.',
+  ], { y: '#f0d080', h: '#5a3420', H: '#7a4a2c', s: '#f0c8a0', G: '#111111', m: '#c05060', r: '#30b0d0', P: '#ff7a50', g: '#ffd040' }]],
+
+  // Hakim version IA : androïde à visière lumineuse et circuits
+  hakim: [[[
+    '...mmmmmm...',
+    '..mMmmmmMm..',
+    '..mccccccm..',
+    '..mcCccCcm..',
+    '..mmmmmmmm..',
+    '...mbbbbm...',
+    '..aaaaaaaa..',
+    '.maalaalaam.',
+    '..aalaalaa..',
+    '..aaaaaaaa..',
+    '..mm....mm..',
+    '..mm....mm..',
+    '.kkk....kkk.',
+  ], { m: '#a0a8b8', M: '#e0e8f0', c: '#20d0ff', C: '#ffffff', b: '#3a404a', a: '#2a3a5a', l: '#40f0ff', k: '#5a606a' }]],
+
+  // Cécile : « La classe à Dallas » (robe de soirée) puis « Tempête Cécile » (nuage d'orage)
+  cecile: [[[
+    '...hHhhHh...',
+    '..hHhhHhhH..',
+    '.hhHssssHhh.',
+    '.Hhsesseshh.',
+    '.hHssmmssHh.',
+    '.Hh.syys.hH.',
+    '..sggggggs..',
+    '..gGggggGg..',
+    '..gggGgggg..',
+    '.gggggggggg.',
+    '.ggGggggGgg.',
+    'gggggggggggg',
+    'gGggggggGggg',
+    '.kk......kk.',
+  ], { h: '#c8a060', H: '#e8cc90', s: '#f4d0b0', e: '#2a6a9a', m: '#c05050', y: '#ffd040', g: '#a01830', G: '#ff6080', k: '#ffd040' }],
+  [[
+    '....cccc....',
+    '..ccCCcccc..',
+    '.cCCccccccc.',
+    'cccccccccccc',
+    'cccecccceccc',
+    'cccccmmccccc',
+    '.cccccccccc.',
+    '..dddddddd..',
+    '...r..r..r..',
+    '..r..r..r...',
+    '....r..r..r.',
+  ], { c: '#8a909c', C: '#c8ccd4', e: '#1a1a2a', m: '#3a3a4a', d: '#5a606c', r: '#7ab8ff' }]],
+
+  // Coline, cheffe de cuisine : toque, veste blanche à boutons, pantalon pied-de-poule
+  coline: [[[
+    '...wwwwww...',
+    '..wwwwwwww..',
+    '..wWWWWWWw..',
+    '...hhhhhh...',
+    '..hHssssHh..',
+    '.hhsessesHh.',
+    '.hHssmmssHh.',
+    '.hhwwwwwwhh.',
+    '.swwbwwbwws.',
+    '..wwbwwbww..',
+    '..qQqQqQqQ..',
+    '..qQ....Qq..',
+    '.kkk....kkk.',
+  ], { w: '#ffffff', W: '#d8dce4', h: '#5a2a18', H: '#8a4428', s: '#f4cca8', e: '#3a2010', m: '#c04848', b: '#2a2a3a', q: '#3a3a4a', Q: '#e8e8e8', k: '#1a1a1a' }]],
+
+  // Franck, traqueur d'ours : chapeau d'explorateur, chemise kaki, appareil photo autour du cou
+  franck: [[[
+    '..tttttttt..',
+    '.tTTTTTTTTt.',
+    '..wssssssw..',
+    '.wGeGssGeGw.',
+    '..ssssssss..',
+    '...smmmms...',
+    '..KLKKKKLK..',
+    '.sKKLCCLKKs.',
+    '..KKKCcKKK..',
+    '..PPPPPPPP..',
+    '..ss....ss..',
+    '..ss....ss..',
+    '.BBB....BBB.',
+  ], { t: '#a08850', T: '#5a4020', w: '#a8a8a8', s: '#f0c8a0', G: '#222', e: '#3a6a9a', m: '#a04040', K: '#b8a070', L: '#3a2a1a', C: '#2a2a2a', c: '#5a8ab0', P: '#8a7a50', B: '#4a3018' }]],
+
+  // Youssef « BG » : costard, chemise blanche, lunettes aviateur
+  youssef: [[[
+    '...hHhhHh...',
+    '..hhHhhHhh..',
+    '..hssssssh..',
+    '..AAAssAAA..',
+    '..BssssssB..',
+    '..BBBmmBBB..',
+    '...BBBBBB...',
+    '.JJJwwwwJJJ.',
+    '.sJJJwwJJJs.',
+    '..JJJwwJJJ..',
+    '..JJJJJJJJ..',
+    '..JJ....JJ..',
+    '.kkk....kkk.',
+  ], { h: '#1a1410', H: '#3a2c22', B: '#1a1410', s: '#d8a880', A: '#2a2a1a', m: '#a04040', J: '#1a1a24', w: '#ffffff', k: '#1a1a1a' }]],
+
+  // Arno : moine shaolin, puis alpiniste chevronné
+  arno: [[[
+    '...gggggg...',
+    '..gGggggGg..',
+    '..gssssssg..',
+    '.gFeFssFeFg.',
+    '..ssssssss..',
+    '..BssmmssB..',
+    '...BBBBBB...',
+    '.oooyoooooo.',
+    '.sooOyooOos.',
+    '..oooOyooo..',
+    '..oooooooo..',
+    '..OOOOOOOO..',
+    '..ss....ss..',
+    '.kkk....kkk.',
+  ], { g: '#7a7a7a', G: '#b0b0b0', s: '#f0c8a0', F: '#222', e: '#3a3a3a', m: '#904040', B: '#9a9a9a', o: '#f08020', O: '#c05010', y: '#ffd040', k: '#5a3a1a' }],
+  [[
+    '...rrrrrr...',
+    '..rRrrrrRr..',
+    '..gssssssg..',
+    '.gFeFssFeFg.',
+    '..ssssssss..',
+    '..BssmmssB..',
+    '...BBBBBB...',
+    '.jjjjyjjjjj.',
+    '.sjjjjyjjjs.',
+    '..jjjjjyjj..',
+    '..jjjjjjjj..',
+    '..pppppppp..',
+    '..pp....pp..',
+    '.KKK....KKK.',
+  ], { r: '#3060c0', R: '#ffffff', g: '#7a7a7a', s: '#f0c8a0', F: '#222', e: '#3a3a3a', m: '#904040', B: '#9a9a9a', j: '#e02020', y: '#ffd040', p: '#2a2a3a', K: '#5a3a1a' }]],
+
+  // Olivier : Gremlins (façon Gizmo), puis chasseur de fantômes
+  olivier: [[[
+    'bb........bb',
+    'bBb......bBb',
+    'bBBbwwwwbBBb',
+    '.bbwwwwwwbb.',
+    '..wEEwwEEw..',
+    '..wEewwEew..',
+    '..wwwnnwww..',
+    '...bwmmwb...',
+    '..bbbbbbbb..',
+    '.wbbwwwwbbw.',
+    '..bbwwwwbb..',
+    '..bbbbbbbb..',
+    '..bb....bb..',
+    '.www....www.',
+  ], { b: '#8a5a2a', B: '#f0b8a0', w: '#f4ece0', E: '#1a1a1a', e: '#ffffff', n: '#3a2a20', m: '#a04040' }],
+  [[
+    '.....hh.....',
+    '....hhhh....',
+    '..hhhhhhhh..',
+    '..hssssssh..',
+    '..sesssses..',
+    '..BBssssBB..',
+    '..BBBmmBBB..',
+    '..BBBBBBBB..',
+    '.uKuuuuuuKu.',
+    '.suKuLLuKus.',
+    '..uuuuuuuu..',
+    '..uu....uu..',
+    '..uu....uu..',
+    '.kkk....kkk.',
+  ], { h: '#c8642a', B: '#b85a24', s: '#f0c8a0', e: '#2a6a9a', m: '#6a2a10', u: '#c8b890', K: '#3a3a3a', L: '#e02020', k: '#1a1a1a' }]],
+
+  // Bastien : « Oups, j'ai oublié mon costume » (flouté là où il faut)
+  bastien: [[[
+    '....ssss....',
+    '...sswsss...',
+    '..ssssssss..',
+    '..sesssses..',
+    '..ssssssss..',
+    '..BssmmssB..',
+    '...BBBBBB...',
+    '.ssssssssss.',
+    '.ssssssssss.',
+    '..ssssssss..',
+    '..ssXYXYss..',
+    '..ssYXYXss..',
+    '..ss....ss..',
+    '..ss....ss..',
+    '.sss....sss.',
+  ], { s: '#e8b890', w: '#fff0dc', e: '#111', m: '#904040', B: '#3a2a20', X: '#b09080', Y: '#d8c0a8' }]],
+};
+
+// Liste des costumes de chaque personnage : 1er costume (COSTUMES) puis les suivants (MORE_COSTUMES)
+const COSTUME_LIST = {};
+for (const id of new Set([...Object.keys(COSTUMES), ...Object.keys(MORE_COSTUMES)]))
+  COSTUME_LIST[id] = [...(COSTUMES[id] ? [COSTUMES[id]] : []), ...(MORE_COSTUMES[id] || [])];
+for (const [id, list] of Object.entries(COSTUME_LIST))
+  list.forEach(([rows, pal], i) => { Sprites[`costume_${id}_${i + 1}`] = charSet(rows, pal); });
+
+// Souris filaire (arme de Bastien)
+Textures.mouse = pixelSprite([
+  '..wwww..',
+  '.wwgwww.',
+  'wwwgwwww',
+  'wwwgwwww',
+  'wwwwwwww',
+  'wwwwwwww',
+  '.wwwwww.',
+  '..wwww..',
+], { w: '#e8ecf0', g: '#5a606a' }, 2);

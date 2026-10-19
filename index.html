@@ -33,7 +33,12 @@
     .members { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; }
     .char { width: 128px; display: flex; flex-direction: column; align-items: center; background: transparent; color: #eee; border: 2px solid transparent; border-radius: 8px; padding: 6px 4px 4px; }
     .char.selected { border-color: #0bc0e8; background: rgba(11, 192, 232, 0.18); transform: translateY(-2px); }
-    .char .portrait { height: 54px; display: flex; align-items: flex-end; margin-bottom: 3px; }
+    .char .portrait { position: relative; height: 54px; display: flex; align-items: flex-end; margin-bottom: 3px; }
+    .skin-nav { position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%); display: none; gap: 30px; align-items: center; }
+    .char.selected .skin-nav { display: flex; }
+    .skin-nav i { font-style: normal; font-size: 12px; color: #ffd866; background: rgba(10,16,24,0.8); border-radius: 4px; padding: 2px 4px; cursor: pointer; }
+    .skin-nav i:hover { background: #ffd866; color: #0a1018; }
+    .skin-nav small { display: none; }
     .char img { image-rendering: pixelated; }
     .char .name { width: 100%; background: #f5b800; color: #fff; font-size: 13px; font-weight: bold; padding: 2px 0; text-shadow: 1px 1px 0 #a07000; }
     .char .role { width: 100%; min-height: 34px; display: flex; align-items: center; justify-content: center; background: #fff; color: #222; border: 2px solid #f5b800; border-top: none; font-size: 11px; line-height: 1.2; padding: 2px; }
@@ -112,6 +117,8 @@
     @keyframes overlay-in { from { opacity: 0; } }
     @keyframes panel-in { from { transform: scale(0.9) translateY(10px); opacity: 0; } }
 
+    .back-btn { margin-top: 8px; }
+
     /* Choix de la difficulté */
     .diff-title { font-family: 'Press Start 2P', sans-serif; font-size: 12px; color: #8fc4ea; margin: 16px 0 8px; }
     #diffList { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
@@ -120,6 +127,20 @@
     .diff-btn small { color: #9ab; font-size: 11px; }
     .diff-btn:hover { border-color: #8fc4ea; }
     .diff-btn.selected { border-color: #ffd866; background: #34485e; }
+
+    /* Menu pause : résumé du personnage */
+    #pause .panel { max-width: 860px; }
+    .summary { display: flex; gap: 16px; flex-wrap: wrap; text-align: left; margin: 0 0 12px; }
+    .sum-col { flex: 1; min-width: 260px; background: #2a3a4c; border: 2px solid #3a5068; border-radius: 6px; padding: 8px 12px; }
+    .summary h3 { margin: 8px 0 4px; font-size: 13px; color: #8fc4ea; }
+    .summary ul { list-style: none; margin: 0; padding: 0; }
+    .summary li { margin: 4px 0; font-size: 13px; }
+    .summary li em { color: #ffd866; font-style: normal; margin-left: 4px; font-size: 12px; }
+    .summary li small { display: block; color: #9ab; font-size: 12px; }
+    .sum-bonus { margin: 4px 0; font-size: 13px; color: #cfe0ff; }
+    .sum-stats { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .sum-stats td { padding: 4px 2px; border-bottom: 1px solid #3a5068; }
+    .sum-stats td.num { text-align: right; color: #7fe07f; white-space: nowrap; }
 
     #chest .panel { border-color: #f0c030; }
     .reward { display: flex; align-items: center; gap: 14px; text-align: left; background: #2a3a4c; border: 2px solid #f0c030; border-radius: 8px; padding: 12px 16px; margin: 8px 0 16px; }
@@ -154,7 +175,8 @@
       <p class="subtitle">Qui va survivre à cette journée ?</p>
       <div id="chars"></div>
       <div id="charInfo"></div>
-      <p class="help">Choix : <b>flèches + Entrée</b> ou clic · Déplacement : <b>ZQSD / WASD / flèches</b> (ou glisser au doigt/à la souris)<br>
+      <button class="btn secondary back-btn" id="backToTitle">← Accueil</button>
+      <p class="help">Choix : <b>↑ ↓ + Entrée</b> ou clic · Skin : <b>← →</b> · Déplacement : <b>ZQSD / WASD / flèches</b> (ou glisser au doigt/à la souris)<br>
         Les armes tirent toutes seules · Ramasse les gemmes pour monter de niveau · <b>Espace</b> : super pouvoir · <b>Échap</b> : pause · <b>M</b> : son<br>
         Tu choisiras ensuite ton niveau</p>
     </div>
@@ -166,7 +188,8 @@
       <div id="levelList"></div>
       <h2 class="diff-title">Difficulté</h2>
       <div id="diffList"></div>
-      <p class="help">Niveau : <b>↑ ↓</b>, <b>1</b> / <b>2</b> / <b>3</b> ou clic · Difficulté : <b>← →</b> · <b>Entrée</b> : jouer · <b>Échap</b> : changer de personnage</p>
+      <p class="help">Niveau : <b>↑ ↓</b>, <b>1</b> à <b>4</b> ou clic · Difficulté : <b>← →</b> · <b>Entrée</b> : jouer · <b>Échap</b> : changer de personnage</p>
+      <button class="btn secondary" id="backToChars">← Changer de personnage</button>
       <button class="btn secondary lb-only" id="boardBtn">🏆 Classement</button>
     </div>
   </div>
@@ -191,6 +214,7 @@
     <div class="panel">
       <h1>Pause café</h1>
       <p>Appuie sur Échap pour reprendre</p>
+      <div id="pauseSummary" class="summary"></div>
       <div class="sound-opts">
         <button class="btn secondary" id="musicBtn"></button>
         <button class="btn secondary" id="sfxBtn"></button>
@@ -227,11 +251,11 @@
     </div>
   </div>
 
-  <script src="js/audio.js?v=11"></script>
-  <script src="js/textures.js?v=11"></script>
-  <script src="js/weapons.js?v=11"></script>
-  <script src="js/characters.js?v=11"></script>
-  <script src="js/leaderboard.js?v=11"></script>
-  <script src="js/game.js?v=11"></script>
+  <script src="js/audio.js?v=22"></script>
+  <script src="js/textures.js?v=22"></script>
+  <script src="js/weapons.js?v=22"></script>
+  <script src="js/characters.js?v=22"></script>
+  <script src="js/leaderboard.js?v=22"></script>
+  <script src="js/game.js?v=22"></script>
 </body>
 </html>

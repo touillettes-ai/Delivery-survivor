@@ -59,7 +59,7 @@
       if (m) m.textContent = 'Erreur : ' + e.message + ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')';
     });
   </script>
-  <script src="js/characters.js?v=11"></script>
+  <script src="js/characters.js?v=22"></script>
   <script>
     // Un enregistrement par personnage, gardé en mémoire jusqu'au téléchargement
     const clips = {};
@@ -72,6 +72,7 @@
       { title: '👥 Prénoms des personnages', entries: Object.entries(CHARACTERS).map(([id, c]) => ({ key: id, title: c.name, hint: `À dire : « ${c.name} »` })) },
       { title: '📣 Annonces', entries: ANNOUNCES.map(a => ({ key: a.key, title: a.label, hint: `À dire : « ${a.text} »` })) },
       { title: '👔 Répliques des directeurs', entries: Object.entries(BOSS_LINES).map(([k, b]) => ({ key: 'boss_' + k, title: b.name, hint: `À dire : « ${b.arrival} »` })) },
+      { title: '🐉 Répliques des monstres (niveau 4)', entries: Object.entries(FAIRY_BOSSES).map(([k, b]) => ({ key: 'fboss_' + k, title: b.name, hint: `À dire : « ${b.arrival} »` })) },
       { title: '⚡ Super pouvoirs', entries: Object.entries(CHARACTERS).map(([id, c]) => ({ key: 'special_' + id, title: `${c.special.icon} ${c.special.name}`, hint: `Super pouvoir de ${c.name} — à dire : « ${c.special.name} ! »` })) },
     ];
     const labelOf = key => SECTIONS.flatMap(sec => sec.entries).find(e => e.key === key).title;

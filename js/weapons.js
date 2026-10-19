@@ -286,7 +286,7 @@ const WEAPONS = {
     legend: "Garde l'aura et lance en plus plein de tasses de café sur les ennemis.",
     stats: l => ({
       dmg: 3 + l * 2,
-      area: 55 + l * 10,
+      area: 50 + l * 16, // grossit nettement à chaque niveau
       tick: +Math.max(0.4, 0.75 - l * 0.03).toFixed(2),
     }),
     update(w, dt, st) {
@@ -447,6 +447,49 @@ const WEAPONS = {
           x: p.x, y: p.y, angle: a0 + i * Math.PI * 2 / st.count, speed: st.speed, dmg: st.dmg, pierce: st.pierce,
           slow: st.slow, r: 10, life: 1.2, sprite: 'beer', noRotate: true,
         });
+      }
+    },
+  },
+
+  mouse: {
+    name: 'Souris filaire', icon: '🖱️', maxLevel: 6,
+    desc: 'Au hasard : lance sa souris sur un ennemi, ou la fait tournoyer autour de lui comme un lasso.',
+    legend: 'Lance la souris ET fait tournoyer un lasso géant à chaque attaque.',
+    stats: l => ({
+      dmg: 12 + l * 5,
+      cd: +Math.max(0.8, 1.6 - l * 0.12).toFixed(2),
+      area: 95 + l * 12,
+      pierce: 2 + Math.floor(l / 2),
+      speed: 480,
+    }),
+    update(w, dt, st) {
+      const p = game.player;
+      // Lasso en cours : la souris fait 2 tours au bout de son fil et touche chaque ennemi une fois
+      const ls = w.lasso;
+      if (ls) {
+        ls.t += dt;
+        const a = ls.a0 + (ls.t / ls.dur) * Math.PI * 4;
+        ls.x = p.x + Math.cos(a) * ls.r;
+        ls.y = p.y + Math.sin(a) * ls.r * 0.8;
+        queryEnemies(ls.x, ls.y, 60, e => {
+          if (e.dead || ls.hit.has(e) || (e.x - ls.x) ** 2 + (e.y - ls.y) ** 2 > (16 + e.r) ** 2) return;
+          ls.hit.add(e);
+          hitEnemy(e, ls.dmg, Math.cos(a) * 160, Math.sin(a) * 160);
+        });
+        if (ls.t >= ls.dur) w.lasso = null;
+      }
+      w.timer -= dt;
+      if (w.timer > 0) return;
+      const target = nearestEnemy(p.x, p.y, 500);
+      if (!target) return;
+      w.timer = st.cd * p.cdMult;
+      const lasso = w.legendary || Math.random() < 0.5, toss = w.legendary || !lasso;
+      if (toss)
+        spawnProjectile({ x: p.x, y: p.y, angle: Math.atan2(target.y - p.y, target.x - p.x), speed: st.speed, dmg: st.dmg, pierce: st.pierce, r: 10, life: 1.1, sprite: 'mouse', noRotate: true, cable: true });
+      if (lasso && !w.lasso) {
+        const big = w.legendary ? 1.5 : 1;
+        w.lasso = { t: 0, dur: 0.8, a0: Math.random() * Math.PI * 2, r: st.area * p.area * big, dmg: st.dmg * 1.2, hit: new Set(), x: p.x, y: p.y };
+        if (Math.random() < 0.06) game.playerBubble = { text: 'Yihaaaa !', t: 1.5 }; // de temps en temps, vraiment pas souvent
       }
     },
   },

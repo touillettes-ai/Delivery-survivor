@@ -86,6 +86,7 @@ const Sfx = (() => {
     database: v => { tone(220, 0.08, 'square', 0.05 * v); tone(440, 0.05, 'square', 0.05 * v, null, 0.05); }, // bzzt numérique
     ai:       v => { tone(600, 0.12, 'triangle', 0.08 * v, 1400); },                                        // piou futuriste
     beer:     v => { tone(2000, 0.08, 'sine', 0.07 * v); tone(2600, 0.1, 'sine', 0.05 * v, null, 0.02); },   // tchin
+    mouse:    v => { tone(2600, 0.02, 'square', 0.06 * v); tone(700, 0.18, 'sine', 0.06 * v, 300, 0.02); },   // clic + fouet du fil
     postit:   v => { noise(0.04, 0.07 * v); tone(1000, 0.04, 'triangle', 0.05 * v, 600); },                 // froufrou de papier
   };
 
@@ -261,6 +262,8 @@ const Sfx = (() => {
     specialReady() { notes([784, 1175], 'triangle', 0.1, 0.3); },
     whistle() { tone(2200, 0.25, 'sine', 0.3, 2400); tone(2400, 0.5, 'sine', 0.3, 2100, 0.3); },
     impact() { if (ready('impact', 70)) { noise(0.12, 0.25); tone(200, 0.12, 'sine', 0.3, 60); } },
+    fart() { if (ready('fart', 400)) { tone(110, 0.35, 'sawtooth', 0.18, 70); tone(95, 0.3, 'square', 0.08, 60, 0.05); notes([1568, 2093], 'sine', 0.08, 0.06); } }, // prrrout… et des paillettes
+    eat() { if (ready('eat', 60)) { noise(0.06, 0.15); tone(500, 0.08, 'triangle', 0.15, 900); } },
     serverHit() { if (ready('server', 250)) { tone(180, 0.15, 'square', 0.12, 90); noise(0.08, 0.1); } },
     shout() { tone(300, 1.2, 'sawtooth', 0.3, 120); },
     win() { notes([523, 659, 784, 1047, 784, 1047], 'square', 0.12, 0.18); },
