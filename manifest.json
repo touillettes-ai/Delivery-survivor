@@ -1,0 +1,9 @@
+{
+  "name": "Delivery Survivor",
+  "short_name": "Delivery",
+  "start_url": "index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#2a3038",
+  "theme_color": "#2a3038"
+}

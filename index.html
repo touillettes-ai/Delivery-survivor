@@ -2,7 +2,12 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#2a3038">
+  <link rel="manifest" href="manifest.json">
   <title>Delivery Survivor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,6 +15,9 @@
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #2a3038; font-family: 'Segoe UI', 'Trebuchet MS', sans-serif; color: #eee; }
+    html, body { height: 100dvh; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    #rotateMsg { display: none; position: fixed; inset: 0; z-index: 9999; background: #10161d; color: #fff; text-align: center; align-items: center; justify-content: center; font-size: 20px; }
+    @media (pointer: coarse) and (orientation: portrait) { #rotateMsg { display: flex; } }
     canvas { display: block; touch-action: none; image-rendering: pixelated; }
     .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 16, 24, 0.65); }
     .hidden { display: none; }
@@ -295,6 +303,7 @@
     </div>
   </div>
 
+  <script src="js/mobile.js?v=45"></script>
   <script src="js/audio.js?v=45"></script>
   <script src="js/textures.js?v=45"></script>
   <script src="js/weapons.js?v=45"></script>
