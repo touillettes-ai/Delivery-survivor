@@ -264,10 +264,14 @@ const BOLT_HEAL = 15;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-let W = 0, H = 0;
+let W = 0, H = 0, VIEW_ZOOM = 1;
 function resize() {
-  W = canvas.width = innerWidth;
-  H = canvas.height = innerHeight;
+  // Sur mobile (écran tactile) la caméra est plus éloignée : le canvas est plus grand que l'écran puis réduit par CSS
+  VIEW_ZOOM = matchMedia('(pointer: coarse)').matches ? 0.7 : 1;
+  W = canvas.width = Math.round(innerWidth / VIEW_ZOOM);
+  H = canvas.height = Math.round(innerHeight / VIEW_ZOOM);
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
   ctx.imageSmoothingEnabled = false;
   buildVignette();
 }
@@ -454,23 +458,24 @@ function changeSkin(id, dir) {
   Sfx.ticket();
 }
 
+const pt = e => ({ x: e.clientX / VIEW_ZOOM, y: e.clientY / VIEW_ZOOM }); // écran → coordonnées du canvas
 canvas.addEventListener('pointerdown', e => {
   // Clic / tap sur le bouton du super pouvoir
   if (game.state === 'play') {
     const b = specialBtnPos();
-    if (Math.hypot(e.clientX - b.x, e.clientY - b.y) < SPECIAL_BTN_R + 8) { activateSpecial(); return; }
+    if (Math.hypot(pt(e).x - b.x, pt(e).y - b.y) < SPECIAL_BTN_R + 8) { activateSpecial(); return; }
   }
   // Double-clic / double tap sur le suiveur de Sheryna : il part en réunion
   const now = performance.now();
-  if (now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
+  if (now - lastTap.t < 350 && Math.hypot(pt(e).x - lastTap.x, pt(e).y - lastTap.y) < 30) {
     lastTap.t = 0;
-    sendFollowerToMeeting(e.clientX, e.clientY);
-  } else Object.assign(lastTap, { t: now, x: e.clientX, y: e.clientY });
+    sendFollowerToMeeting(pt(e).x, pt(e).y);
+  } else Object.assign(lastTap, { t: now, x: pt(e).x, y: pt(e).y });
   touch.active = true;
-  touch.sx = touch.x = e.clientX;
-  touch.sy = touch.y = e.clientY;
+  touch.sx = touch.x = pt(e).x;
+  touch.sy = touch.y = pt(e).y;
 });
-addEventListener('pointermove', e => { if (touch.active) { touch.x = e.clientX; touch.y = e.clientY; } });
+addEventListener('pointermove', e => { if (touch.active) { touch.x = pt(e).x; touch.y = pt(e).y; } });
 addEventListener('pointerup', () => touch.active = false);
 
 function sendFollowerToMeeting(sx, sy) {
